@@ -1,0 +1,51 @@
+{
+  "name": "@local/dsh-wow-bridge",
+  "version": "0.5.0",
+  "private": true,
+  "description": "《魔兽世界：无限》游戏内 [DSH] 频道：提问、翻译、行情（欧服/美服 wowauctions，国服 无限图鉴）、地图标记、采购清单；带游戏插件、静音语音和设置页",
+  "license": "MIT",
+  "author": "加拿大雨姐",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/robeson1010/dsh-wow-bridge.git",
+    "directory": "dsh-web"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./wowf-tool-policy": "./wowf-tool-policy.js",
+    "./wowf-market-tools": "./wowf-market-tools.js",
+    "./package.json": "./package.json",
+    "./client": "./client.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.5 <0.3.0"
+  },
+  "engines": {
+    "dsh": ">=0.2.2-rc.5 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "wowf-tool-policy.js",
+    "wowf-market-tools.js",
+    "wowauctions.js",
+    "cordis.patch.yml",
+    "lib/",
+    "addon/",
+    "voice/",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ]
+}

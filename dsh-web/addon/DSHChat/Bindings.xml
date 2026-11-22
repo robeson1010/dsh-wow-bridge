@@ -1,0 +1,8 @@
+<Bindings>
+	<Binding name="DSHCHAT_MENU" category="BINDING_HEADER_DSHCHAT">
+		DSHChat_ToggleQuickMenu()
+	</Binding>
+	<Binding name="DSHCHAT_MARKET" category="BINDING_HEADER_DSHCHAT">
+		DSHChat_AskHoveredMarket()
+	</Binding>
+</Bindings>
