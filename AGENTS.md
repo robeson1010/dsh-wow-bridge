@@ -72,6 +72,12 @@
    `{{buy:…}}` 只会变成 Auctionator 购物清单（物品名取自客户端，最多 12 种、每种最多 1000 个），而且**用户要求不自动加**：
    只有玩家确认（点链接、`/dshc buy`、菜单）或在问题里要求（`Core.AskedToAdd`）才加。**不准加任何自动购买、自动按键的功能**：
    购买必须是玩家自己在拍卖行点（暴雪也要求硬件事件），用户已经明确不要外挂式的自动操作。
+   **插件不准打开、填写或改暴雪的聊天框**（`ChatFrameUtil.OpenChat`、编辑框的 `SetChatType`/`SetTellTarget`/`SetChannelTarget`/`SetText`、
+   `ChatFrameUtil.InsertLink` 之类）：聊天类型和对象是编辑框属性，插件写过就被污染，玩家下一句真话读到它，受限的
+   `C_ChatInfo.SendChatMessage` 被拦（“DSHChat has been blocked from an action only available to the Blizzard UI”），
+   而且污染的类型会变成固定频道，之后每一句都被拦（0.5.0 的 [填入聊天框] 和菜单的 OpenChat 就是这样，0.5.2 改掉）。
+   要输入就用 `Core.OpenAsk`/`Core.OpenTranslate` 的自建输入框，要给玩家文字就用 `Core.ShowCopy`（选中后 Ctrl+C）。
+   预发送回调 `ChatFrame.OnEditBoxPreSendText` 对真实频道的消息什么都不读不写，只处理 DSH/DSHT 两个类型。
    聊天框里的 `|Haddon:DSHChat:buy:N|h` 链接由暴雪的 addon 链接处理器转给 `EventRegistry` 的 "SetItemRef"（Forever 的 ItemRefHandlersShared.lua）。
    地图位置同样**不自动标**：渲染成暴雪原生的 `|Hworldmap:uiMapID:x*100:y*100|h` 链接，点了由暴雪自己的处理器放地图标记（不经过我们的代码，没有污染）。
    只有问题里要求（`Core.AskedToMark`）才由插件调 `C_Map.SetUserWaypoint` 标第一个位置，而且战斗中、地图开着时不调

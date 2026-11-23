@@ -1,6 +1,6 @@
 -- Quick questions: a draggable "DSH" button that opens a menu of common questions, two key bindings (open the menu;
 -- ask the market question about the item under the mouse) and the player's own questions (/dshc add|del|list).
--- The menu also opens the chat box in the [DSH] channel, starts a new conversation and (once an answer listed
+-- The menu also opens DSHChat's own input box (a question / a translation), starts a new conversation and (once an answer listed
 -- materials) adds that shopping list to Auctionator; while a question waits for its answer the button shows
 -- "正在回复… N 秒" beside it.
 -- Blizzard_Menu (MenuUtil / Menu.GetManager) is in this client and calls the generator and the callbacks through
@@ -127,27 +127,25 @@ end
 QuickMenu.Label = function(q) return Truncate(Plain(q), LABEL_CHARS) end
 
 -- ---- the menu ----
--- the chat box in the [DSH] channel: the same as typing "/dsh " (the edit box parses it into the DSH chat type)
-local function OpenChannel()
-	local open = ChatFrameUtil and ChatFrameUtil.OpenChat or ChatFrame_OpenChat
-	if open then open("/dsh ") end
-end
+-- typing a question / a translation: in DSHChat's own box (Core.OpenAsk / OpenTranslate). Opening Blizzard's chat
+-- box from addon code taints it and blocks the player's next real message (see Core.lua, Box).
+local function OpenChannel() Core.OpenAsk() end
 QuickMenu.OpenChannel = OpenChannel
 
--- the chat box in the [DSH 翻译] channel ("/dsht "): Chinese -> English, English -> Chinese
-local function OpenTranslate()
-	local open = ChatFrameUtil and ChatFrameUtil.OpenChat or ChatFrame_OpenChat
-	if open then open("/dsht ") end
-end
+local function OpenTranslate() Core.OpenTranslate() end
 QuickMenu.OpenTranslate = OpenTranslate
 
 local function Generate(_, root)
 	root:CreateTitle("DSH 快捷提问")
-	root:CreateButton("进入 DSH 频道（打字提问）", OpenChannel)
+	local ask = root:CreateButton("打字提问", OpenChannel)
+	ask:SetTooltip(function(tt)
+		GameTooltip_SetTitle(tt, "打字提问")
+		GameTooltip_AddNormalLine(tt, "弹出输入框，回车就问 DSH。也可以在聊天框打 /dsh 问题（可以 Shift 点物品链接）。")
+	end)
 	local tr = root:CreateButton("帮我翻译（中文↔英文）", OpenTranslate)
 	tr:SetTooltip(function(tt)
 		GameTooltip_SetTitle(tt, "帮我翻译")
-		GameTooltip_AddNormalLine(tt, "聊天框切到 [DSH 翻译]：打中文翻成英文，打英文翻成中文。译文后面的 [填入聊天框] 把英文放进你原来的聊天频道，按回车才发出去。")
+		GameTooltip_AddNormalLine(tt, "弹出输入框：打中文翻成英文，打英文翻成中文。点译文后面的 [复制译文]，Ctrl+C 复制，再到聊天框 Ctrl+V 发出去。也可以在聊天框打 /dsht 文字。")
 	end)
 	root:CreateButton("开新对话（/dshc reset）", function() SlashCmdList.DSHC("reset") end)
 	-- the latest shopping list from an answer: added to Auctionator only when picked here (or confirmed in chat)

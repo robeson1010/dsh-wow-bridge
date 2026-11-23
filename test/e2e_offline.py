@@ -115,6 +115,11 @@ def make_lua(client):
       local FrameMT = {}
       FrameMT.__index = function(t, k) return rawget(FrameMT, k) or (type(k) == "string" and k:match("^%u") and noop) or nil end   -- any other frame method (Capitalized): no-op; fields stay nil
       for _, name in ipairs({"SetIgnoreParentScale","SetSize","SetPoint","SetAlpha","SetScale","RegisterEvent"}) do FrameMT[name] = noop end
+      function FrameMT:SetText(t) self.text = t end
+      function FrameMT:GetText() return self.text end
+      function FrameMT:SetFocus() self.focused = true end
+      function FrameMT:ClearFocus() self.focused = false end
+      function FrameMT:HighlightText() self.highlighted = true end
       function FrameMT:Show() self.shown = true end
       function FrameMT:Hide() self.shown = false end
       function FrameMT:SetShown(v) self.shown = v and true or false end
@@ -139,7 +144,7 @@ def make_lua(client):
         return fs
       end
       FRAMES = {}
-      function CreateFrame() local f = setmetatable({ scripts = {} }, FrameMT) FRAMES[#FRAMES + 1] = f return f end
+      function CreateFrame(kind, _, parent) local f = setmetatable({ scripts = {}, kind = kind, parent = parent }, FrameMT) FRAMES[#FRAMES + 1] = f return f end
       UIParent = CreateFrame()
       GameFontNormal = {}
       function GetPhysicalScreenSize() return 1920, 1080 end
@@ -208,7 +213,10 @@ def make_lua(client):
         GetManager = function() return { OpenMenu = function(_, owner, root) LAST_MENU = root return MenuObj() end } end,
       }
       function CreateAnchor() return {} end
-      ChatFrameUtil = { OpenChat = function(text) OPENED_CHAT = text end }
+      -- Blizzard's chat box: the addon must never open, fill or retype it (that taints the player's next message)
+      CHAT_TOUCHED = {}
+      ChatFrameUtil = setmetatable({}, { __index = function(_, k) return function() table.insert(CHAT_TOUCHED, k) end end })
+      ChatFrame_OpenChat = function() table.insert(CHAT_TOUCHED, "ChatFrame_OpenChat") end
       function PlaySound() end
       SOUNDKIT = { IG_MAINMENU_OPTION_CHECKBOX_ON = 1 }
       function GameTooltip_SetTitle() end
@@ -438,7 +446,7 @@ def main():
         top = items(None)
         labels = [(x.kind.decode(), text(x)) for x in top]
         assert labels[0] == ('title', 'DSH 快捷提问'), labels
-        assert labels[1:5] == [('button', '进入 DSH 频道（打字提问）'), ('button', '帮我翻译（中文↔英文）'), ('button', '开新对话（/dshc reset）'), ('divider', '')], labels
+        assert labels[1:5] == [('button', '打字提问'), ('button', '帮我翻译（中文↔英文）'), ('button', '开新对话（/dshc reset）'), ('divider', '')], labels
         assert [l[1] for l in labels[5:8]] == ['我现在该做什么？', '附近有什么任务？', '这里适合刷什么？'], labels
         market = top[8]
         assert text(market) == '行情：鼠标指着的物品' and market.enabled is False, 'no item hovered: greyed out'
@@ -447,11 +455,17 @@ def main():
         assert sub[0] == ('button', 'Tailoring  150/300') and sub[1][0] == 'divider', sub   # own profession first, child id 2948 -> 197
         assert '裁缝' not in [s[1] for s in sub[2:]] and len(sub) == 2 + 8, sub           # the other 8, herbalism skipped
         assert text(top[11]).startswith('自定义问题') and top[11].enabled is False and len(top) == 12, labels
-        # 进入 DSH 频道: the chat box opens with "/dsh " (the edit box turns that into the DSH chat type)
+        # 打字提问 / 帮我翻译: DSHChat's own input box opens (focused, empty); Blizzard's chat box is not touched
         top[1].cb()
-        assert g.OPENED_CHAT == b'/dsh ', g.OPENED_CHAT
+        box_eb = [f for f in g.FRAMES.values() if f.kind == b'EditBox'][0]
+        box = box_eb.parent
+        assert box.shown is True and box_eb.focused is True and box_eb.text == b'' and box.title.text.decode() == '问 DSH', box.title.text
+        box_eb.scripts[b'OnEscapePressed'](box_eb)
+        assert box.shown is False
         top[2].cb()
-        assert g.OPENED_CHAT == b'/dsht ', '帮我翻译 opens the [DSH 翻译] channel'
+        assert box.shown is True and box.title.text.decode().startswith('DSH 翻译'), box.title.text
+        box_eb.scripts[b'OnEscapePressed'](box_eb)
+        assert len(g.CHAT_TOUCHED) == 0, list(g.CHAT_TOUCHED.values())
         # a fixed question; a double click sends once
         h.client.spoken.clear()
         btn = [f for f in g.FRAMES.values() if f.scripts[b'OnClick']][0]
@@ -799,44 +813,51 @@ def main():
             assert not mark(q), q
         print('OK  map locations: built-in map-pin links (loc + npc via QuestieDB), never pinned on render, pinned only when asked (not in combat / map open)')
 
-        # 12. translation: the [DSH 翻译] chat type; the translation gets a [填入聊天框] link that fills the chat box in
-        # the channel the player last really used (nothing is sent)
-        h.lua.execute('''
-          EB = { chatType = "DSHT", text = "" }
-          function EB:GetChatType() return self.chatType end
-          function EB:SetChatType(t) self.chatType = t end
-          function EB:SetTellTarget(t) self.tell = t end
-          function EB:SetChannelTarget(t) self.channel = t end
-          function EB:UpdateHeader() self.header = true end
-          function EB:SetText(t) self.text = t end
-          ChatFrameUtil.GetActiveWindow = function() return EB end'''.encode('utf-8'))
+        # 12. translation: the [DSH 翻译] chat type; the translation gets a [复制译文] link that shows it selected in
+        # DSHChat's own box (Ctrl+C); Blizzard's chat box is never opened, filled or retyped
         pre = h.g.CALLBACKS[b'ChatFrame.OnEditBoxPreSendText']
-        whisper = h.lua.eval('''{ chatType = "WHISPER", text = "hi", tellTarget = "Bob",
+        whisper = h.lua.eval('''{ chatType = "WHISPER", text = "hi", tellTarget = "Bob", touched = 0,
           GetChatType = function(self) return self.chatType end, GetText = function(self) return self.text end,
-          SetText = function(self, t) self.text = t end, GetAttribute = function(self, k) return self[k] end }''')
+          SetText = function(self, t) self.touched = self.touched + 1 self.text = t end,
+          GetAttribute = function(self, k) self.touched = self.touched + 1 return self[k] end }''')
         pre[1](pre[2], whisper)
-        assert whisper.text == b'hi', 'a real message is left alone'
+        assert whisper.text == b'hi' and whisper.touched == 0, 'a real message is left alone (not even read)'
         h.client.chat.clear()
         h.type_in_channel('你好，一起组队吗', b'DSHT')
         h.tick(0.1)
         assert any('[DSH 翻译] 原文：' in l and '你好，一起组队吗' in l for l in h.client.chat), h.client.chat
         line = h.wait_chat('[DSH 译文]')
         assert '译文测试：你好，一起组队吗' in line, line
-        link = h.wait_chat('[填入聊天框]')
-        assert '|Haddon:DSHChat:tr:1|h[填入聊天框]|h' in link, link
+        link = h.wait_chat('[复制译文]')
+        assert '|Haddon:DSHChat:tr:1|h[复制译文]|h' in link, link
         assert not any('回声测试' in l for l in h.client.chat), 'a translation is not printed as an answer'
         link_cb = h.g.CALLBACKS[b'SetItemRef']
         link_cb[1](link_cb[2], b'addon:DSHChat:tr:1', b'[x]', b'LeftButton')
-        eb = h.g.EB
-        assert eb.text.decode('utf-8') == '译文测试：你好，一起组队吗', eb.text
-        assert eb.chatType == b'WHISPER' and eb.tell == b'Bob' and eb.header is True, (eb.chatType, eb.tell)
-        # the box already in a real channel keeps it
-        eb.chatType = b'PARTY'
-        link_cb[1](link_cb[2], b'addon:DSHChat:tr:1', b'[x]', b'LeftButton')
-        assert eb.chatType == b'PARTY'
+        box_eb = [f for f in h.g.FRAMES.values() if f.kind == b'EditBox'][0]
+        box = box_eb.parent
+        assert box.shown is True and box_eb.text.decode('utf-8') == '译文测试：你好，一起组队吗', box_eb.text
+        assert box_eb.highlighted is True and box_eb.focused is True and box.title.text.decode() == '译文'
+        # a stray key does not change what gets copied; Enter just closes it (nothing is sent)
+        box_eb.text = '译文测试：你好'.encode('utf-8')
+        box_eb.scripts[b'OnTextChanged'](box_eb, True)
+        assert box_eb.text.decode('utf-8') == '译文测试：你好，一起组队吗', box_eb.text
+        spoken_before = len(h.client.spoken)
+        box_eb.scripts[b'OnEnterPressed'](box_eb)
+        h.tick(0.1)
+        assert box.shown is False and len(h.client.spoken) == spoken_before, 'Enter in the copy box sends nothing'
         link_cb[1](link_cb[2], b'addon:DSHChat:tr:99', b'[x]', b'LeftButton')
         h.wait_chat('这条译文太旧了')
-        print('OK  translation: /dsht channel, translation printed with [填入聊天框], fills the last real channel, sends nothing')
+        # the menu's translate box: Enter translates and the box stays open for the next line
+        h.g.DSHChat_ToggleQuickMenu()
+        [x for x in h.g.LAST_MENU.entries.values() if x.text == '帮我翻译（中文↔英文）'.encode('utf-8')][0].cb()
+        box_eb.text = 'how much is this'.encode('utf-8')
+        box_eb.scripts[b'OnEnterPressed'](box_eb)
+        h.tick(0.1)
+        assert box.shown is True and box_eb.text == b'', 'the translate box stays open, emptied'
+        h.wait_chat('译文测试：how much is this')
+        box_eb.scripts[b'OnEscapePressed'](box_eb)
+        assert len(h.g.CHAT_TOUCHED) == 0, list(h.g.CHAT_TOUCHED.values())
+        print('OK  translation: /dsht channel and the menu box, [复制译文] shows it selected in our own box, Blizzard chat box untouched')
     except AssertionError as e:
         ok = False
         print('FAIL', e)

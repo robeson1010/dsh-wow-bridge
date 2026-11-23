@@ -107,7 +107,7 @@ export function prompt(req, opts = {}) {
 }
 
 // A translation request from the [DSH 翻译] channel: Chinese -> English, otherwise -> Simplified Chinese. The answer is
-// shown as the translation with a [填入聊天框] link, so it must be the translation only. Item links come as
+// shown as the translation with a [复制译文] link, so it must be the translation only. Item links come as
 // {{item:ID|Name}} so the addon can put the real item link back into the chat text.
 export function translatePrompt(req) {
   const links = linksOf(req).filter((l) => l.type === 'item' && l.id);

@@ -28,8 +28,7 @@ local KEY_T = "DSHT"
 ChatTypeInfo[KEY_T] = { sticky = 1, flashTab = false, flashTabOnGeneral = false, r = R, g = G, b = B }
 _G["SLASH_" .. KEY_T .. "1"] = "/dsht"
 _G["CHAT_" .. KEY_T .. "_SEND"] = "[DSH 翻译]: "
-local lastOut           -- the chat type the player last really sent in (with its whisper/channel target)
-local trTexts, trSerial = {}, 0   -- serial -> translation, for the [填入聊天框] links (the last 20 work)
+local trTexts, trSerial = {}, 0   -- serial -> translation, for the [复制译文] links (the last 20 work)
 
 local function Frame() return DEFAULT_CHAT_FRAME end
 
@@ -49,6 +48,95 @@ local function StripCodes(s)
 	return s
 end
 Core.StripCodes = StripCodes
+
+-- ---------- a small box of our own: typing a question / a translation, and copying a translation ----------
+-- The addon never opens, fills or retypes Blizzard's chat box. Its chat type and whisper/channel targets are frame
+-- attributes, and the chat functions keep global state: written from addon code they are tainted, the player's next
+-- real message reads them, and C_ChatInfo.SendChatMessage (restricted in this client) is then blocked with "DSHChat has
+-- been blocked from an action only available to the Blizzard UI" - for every later message too, because the tainted
+-- chat type becomes the sticky one. (0.5.0's [填入聊天框] and the menu's OpenChat did that.) Typing "/dsh …" or
+-- "/dsht …" in the chat box is the player's own input and stays as it was.
+local box
+local function Box()
+	if box then return box end
+	local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+	f:SetSize(480, 82)
+	f:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 280)
+	f:SetFrameStrata("DIALOG")
+	f:SetClampedToScreen(true)
+	f:EnableMouse(true)
+	f:SetMovable(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", f.StartMoving)
+	f:SetScript("OnDragStop", f.StopMovingOrSizing)
+	f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 16,
+		insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+	f:SetBackdropColor(0, 0, 0, 0.92)
+	f:Hide()
+
+	f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	f.title:SetPoint("TOPLEFT", 12, -10)
+	f.title:SetTextColor(R, G, B)
+	f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	f.hint:SetPoint("BOTTOMLEFT", 12, 10)
+	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", 0, 0)
+
+	local eb = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+	eb:SetPoint("TOPLEFT", 18, -30)
+	eb:SetPoint("TOPRIGHT", -14, -30)
+	eb:SetHeight(22)
+	eb:SetAutoFocus(false)
+	eb:SetMaxLetters(0)   -- no limit: a long translation is copied whole
+	eb:SetScript("OnEscapePressed", function() f:Hide() end)
+	eb:SetScript("OnEnterPressed", function(self)
+		local onEnter = f.onEnter
+		if not onEnter then return f:Hide() end
+		local text = strtrim(self:GetText() or "")
+		if text == "" then return f:Hide() end
+		self:SetText("")
+		if not f.keepOpen then f:Hide() end
+		C_Timer.After(0, function() onEnter(text) end)
+	end)
+	-- copy mode: the text stays as it was (a stray key would otherwise change what gets copied)
+	eb:SetScript("OnTextChanged", function(self, userInput)
+		if userInput and f.copyText and self:GetText() ~= f.copyText then
+			self:SetText(f.copyText)
+			self:HighlightText()
+		end
+	end)
+	f:SetScript("OnHide", function() eb:ClearFocus() end)
+	f.eb = eb
+	box = f
+	return f
+end
+
+local function OpenBox(title, hint, text, onEnter, keepOpen)
+	local f = Box()
+	f.title:SetText(title)
+	f.hint:SetText(hint)
+	f.onEnter, f.keepOpen, f.copyText = onEnter, keepOpen, nil
+	f.eb:SetText(text or "")
+	if text then f.copyText = text end
+	f:Show()
+	f.eb:SetFocus()
+	if text then f.eb:HighlightText() else f.eb:SetCursorPosition(0) end
+end
+
+-- the quick menu's 进入 DSH 频道 / 帮我翻译
+function Core.OpenAsk()
+	OpenBox("问 DSH", "回车提问，Esc 关闭（要带物品链接就在聊天框打 /dsh 再 Shift 点物品）", nil,
+		function(text) Core:Ask(text) end, false)
+end
+function Core.OpenTranslate()
+	OpenBox("DSH 翻译（中文 → 英文，英文 → 中文）", "回车翻译，可以接着打下一句；Esc 关闭", nil,
+		function(text) Core:Translate(text) end, true)
+end
+-- [复制译文]: selected, ready for Ctrl+C; the player pastes it into the chat box and sends it themself
+function Core.ShowCopy(text)
+	OpenBox("译文", "已选中：Ctrl+C 复制，到聊天框 Ctrl+V，回车发出；Esc 关闭", text, nil, false)
+end
 
 -- An item link for {{item:ID|Name}} in an answer. An item the player linked in the question comes back as the
 -- player's own link (keeps random-suffix stats). Otherwise the client's link, only when the client knows that item
@@ -463,32 +551,14 @@ local function PrintTranslation(text, isLate, asked)
 	if first then return Say("|cff999999(空回答)|r") end
 	trSerial = trSerial + 1
 	trTexts[trSerial], trTexts[trSerial - 20] = ChatText(text, asked), nil
-	Frame():AddMessage(("      |cff66ccff|Haddon:DSHChat:tr:%d|h[填入聊天框]|h|r |cff999999放进你原来的聊天频道，按回车才发出去|r"):format(trSerial), R, G, B)
+	Frame():AddMessage(("      |cff66ccff|Haddon:DSHChat:tr:%d|h[复制译文]|h|r |cff999999弹出译文，Ctrl+C 复制后到聊天框 Ctrl+V|r"):format(trSerial), R, G, B)
 end
 
--- [填入聊天框]: the translation into the chat box, in the channel the player last really used (not a DSH one).
--- Nothing is sent: the player presses Enter.
-local function FillChat(text)
-	local open = ChatFrameUtil and ChatFrameUtil.OpenChat or ChatFrame_OpenChat
-	if not open then return end
-	open("")
-	local eb = ChatFrameUtil and ChatFrameUtil.GetActiveWindow and ChatFrameUtil.GetActiveWindow()
-	if not eb then return end
-	local t = eb:GetChatType()
-	if t == KEY or t == KEY_T then
-		local o = lastOut or { type = "SAY" }
-		eb:SetChatType(o.type)
-		if o.tell then eb:SetTellTarget(o.tell) end
-		if o.channel then eb:SetChannelTarget(o.channel) end
-		if eb.UpdateHeader then eb:UpdateHeader() end
-	end
-	eb:SetText(text)
-end
-
--- a click on [填入聊天框] (dispatched from the one SetItemRef callback below)
+-- a click on [复制译文] (dispatched from the one SetItemRef callback below): the translation in our own box, selected
+-- for Ctrl+C. Never into Blizzard's chat box (see Box above).
 local function OnTranslationLink(n)
 	local text = trTexts[tonumber(n)]
-	if text then FillChat(text) else Say("这条译文太旧了，找不到了：请再翻译一次。") end
+	if text then Core.ShowCopy(text) else Say("这条译文太旧了，找不到了：请再翻译一次。") end
 end
 
 -- ---------- shopping lists: {{buy:Title|ID×N,ID×N}} in an answer -> (on confirmation) an Auctionator shopping list ----------
@@ -753,7 +823,7 @@ end
 
 function Core.LastBuy() return lastBuy end
 
--- a click on [加进 Auctionator] or [填入聊天框]
+-- a click on [加进 Auctionator] or [复制译文]
 EventRegistry:RegisterCallback("SetItemRef", function(_, link)
 	local tr = type(link) == "string" and link:match("^addon:DSHChat:tr:(%d+)")
 	if tr then return OnTranslationLink(tr) end
@@ -790,7 +860,7 @@ local function OnPacket(pkt)
 	if e.got >= pkt.parts then
 		local all = {}
 		for i = 1, pkt.parts do all[i] = e.parts[i] or "" end
-		if e.kind == "translate" then      -- no lists, no map pins: just the translation and its [填入聊天框]
+		if e.kind == "translate" then      -- no lists, no map pins: just the translation and its [复制译文]
 			pending[pkt.id], late[pkt.id] = nil, nil
 			local ok, err = pcall(PrintTranslation, table.concat(all), wasLate, e.asked)
 			if not ok then Say("译文显示出错：" .. Plain(err)) end
@@ -822,15 +892,7 @@ end
 EventRegistry:RegisterCallback("ChatFrame.OnEditBoxPreSendText", function(_, editBox)
 	if not editBox then return end
 	local chatType = editBox:GetChatType()
-	if chatType ~= KEY and chatType ~= KEY_T then
-		-- a real chat message: remember where it went, for [填入聊天框]
-		if type(chatType) == "string" then
-			lastOut = { type = chatType }
-			if chatType == "WHISPER" or chatType == "BN_WHISPER" then lastOut.tell = editBox:GetAttribute("tellTarget") end
-			if chatType == "CHANNEL" then lastOut.channel = editBox:GetAttribute("channelTarget") end
-		end
-		return
-	end
+	if chatType ~= KEY and chatType ~= KEY_T then return end   -- a real chat message: not ours, nothing touched
 	local text = editBox:GetText()
 	editBox:SetText("")      -- first: nothing may be left for SendChatMessage
 	if issecretvalue and issecretvalue(text) then
@@ -877,7 +939,7 @@ SlashCmdList.DSHC = function(msg)
 	else
 		Say("用法：输入 /dsh 进入 DSH 频道后直接打字提问（像 /s 一样会保持）；宏里用 /dshq 问题。")
 		Say("/dshc test 测试链路 · /dshc reset 开新对话（也可以在频道里打“新对话”） · /dshc status 状态 · /dshc voices 列出语音")
-		Say("翻译：输入 /dsht 进入 [DSH 翻译]（或 DSH 按钮菜单里的“帮我翻译”），打中文翻成英文、打英文翻成中文；点译文后面的 [填入聊天框] 放进原来的频道，按回车才发出去")
+		Say("翻译：输入 /dsht 进入 [DSH 翻译]（或 DSH 按钮菜单里的“帮我翻译”），打中文翻成英文、打英文翻成中文；点译文后面的 [复制译文]，Ctrl+C 复制，到聊天框 Ctrl+V 发出去")
 		Say("地图：回答里的 [地图标记] 链接点了才在地图上放游戏自带的标记（问题里说“标到地图”“帮我导航”“带我去”会直接标第一个）")
 		Say("采购清单：DSH 列出要买的材料后，点 [加进 Auctionator] 或打 /dshc buy，才会放进 Auctionator 购物清单「" .. BUY_LIST .. "」（问题里说“加进购物清单”也行）")
 		Say("快捷提问：点 DSH 按钮（也能进频道、开新对话；等回答时按钮旁显示“正在回复…”），或在 按键设置 › DSH 频道 绑快捷键 · /dshc add 问题 · /dshc del 编号 · /dshc list · /dshc button on|off|reset")
