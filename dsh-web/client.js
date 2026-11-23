@@ -1,5 +1,5 @@
-// Browser half of @local/dsh-wow-bridge: the plugin's settings page on DSH's Plugins page (bundle detail, slot
-// `plugins.bundle.config`). Hand-written in the client module system's lazy-CJS factory format (no build step):
+// Browser half of @local/dsh-wow-bridge: the plugin's settings page, as its own entry in DSH's Settings (slot
+// `settings.section`, beside General / Models / Plugins) and on the bundle's page under Plugins (`plugins.bundle.config`). Hand-written in the client module system's lazy-CJS factory format (no build step):
 // React and the primitives come from the platform module table. Everything it changes goes through the Host plugin's
 // exact routes /api/wow-dsh-bridge/* (index.js), which write %APPDATA%\DSHBridge\config.json and do the installs.
 window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) => {
@@ -70,6 +70,14 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
       } catch (e) { if (alive.current) setErr(`读不到插件状态：${e.message}（插件没启用，或 dsh web 需要重启）`); }
     }, []);
     useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+    // a fresh update check when the page opens (the host checks every 6 hours on its own)
+    const checked = useRef(false);
+    useEffect(() => {
+      if (!st || checked.current) return;
+      checked.current = true;
+      const at = st.update && st.update.checkedAt ? Date.parse(st.update.checkedAt) : 0;
+      if (!(Date.now() - at < 10 * 60 * 1000)) call('update-check', {}).then((r) => { if (alive.current && r && r.plugin) setSt(r); }).catch(() => {});
+    }, [st]);   // eslint-disable-line
     useEffect(() => { if (st && !dir) setDir(st.settings.wowDir || st.game.addons || ''); }, [st]);   // eslint-disable-line
 
     const run = async (what, name, body, done) => {
@@ -148,20 +156,29 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
 
     // 5. updates
     const u = st.update || {};
+    const restartNow = () => run('restart', 'restart', {}, () => setNote('dsh web 正在重启：几秒后刷新这一页。重启后它在后台运行（不在原来的终端窗口里）。'));
     const updates = h(Section, { title: '升级' },
-      h('div', null, `当前版本 ${st.plugin.version}`,
-        u.latest ? (u.newer ? h('span', { style: css.warn }, `，GitHub 上有新版本 ${u.latest}`) : h('span', { style: css.ok }, '，已是最新')) : null,
+      u.restarted ? h('div', { style: css.ok }, `✓ ${u.restarted}`) : null,
+      h('div', null, `当前版本 ${u.current || st.plugin.version}`,
+        u.needsRestart ? h('span', { style: css.warn }, `，${u.needsRestart} 已装好，重启 dsh web 后生效`)
+        : u.latest ? (u.newer ? h('span', { style: css.warn }, `，GitHub 上有新版本 ${u.latest}`) : h('span', { style: css.ok }, '，已是最新'))
+        : null,
         u.error ? h('span', { style: css.err }, `（检查失败：${u.error}）`) : null),
       u.message ? h('div', null, u.message) : null,
       h(Line, null,
         h(Btn, { disabled: !!busy || u.checking, onClick: () => run('check', 'update-check', {}) }, u.checking ? '检查中…' : '检查更新'),
-        u.newer ? h(Btn, { primary: true, disabled: !!busy || u.applying, onClick: () => run('update', 'update', {}, (r) => {
-          if (r.error) setErr(r.error + (r.spec ? `\n${r.spec}` : '')); else setNote(`正在升级到 ${r.to}：插件会重新加载，几秒后刷新这一页。`);
-        }) }, u.applying ? '升级中…' : '立即升级') : null,
+        u.newer && !u.needsRestart ? h(Btn, { primary: true, disabled: !!busy || u.applying, onClick: () => run('update', 'update', {}, (r) => {
+          if (r.error) setErr(r.error + (r.spec ? `\n${r.spec}` : ''));
+          else setNote(`正在升级到 ${r.to}：装好后会自动重启 dsh web，之后刷新这一页。`);
+        }) }, u.applying ? '升级中…' : `升级到 ${u.latest}`) : null,
+        u.needsRestart && !u.desktop ? h(Btn, { primary: true, disabled: !!busy, onClick: restartNow }, busy === 'restart' ? '正在重启…' : '重启 dsh web') : null,
         h('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' } },
           h('input', { type: 'checkbox', checked: !!s.autoUpdate, disabled: !!busy, onChange: (e) => run('auto-update', 'settings', { autoUpdate: e.target.checked }) }),
-          '有新版本时自动升级')),
-      st.plugin.repo ? h('div', { style: css.muted }, `来源：github.com/${st.plugin.repo}（每 6 小时检查一次）`) : null);
+          '有新版本时自动下载安装')),
+      h('div', { style: css.muted }, u.desktop
+        ? 'DSH 桌面版：插件装好后由桌面版重启。'
+        : '自动下载安装不会打断你：装好后在这里点“重启 dsh web”生效；手动点“升级”会装好后自动重启。'),
+      st.plugin.repo ? h('div', { style: css.muted }, `来源：github.com/${st.plugin.repo}（dsh web 每 6 小时检查一次，打开这一页时也会检查）`) : null);
 
     return h('div', { style: css.page },
       err ? h('div', { style: { ...css.err, whiteSpace: 'pre-wrap' } }, err) : null,
@@ -171,9 +188,14 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
 
   exports.inject = ['slots'];
   exports.apply = function apply(ctx) {
+    // its own entry in Settings (like General / Models / Plugins)
+    ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section', id: 'wow-dsh-bridge', order: 2, label: () => '魔兽世界',
+    }, Page)), 'wow-dsh-bridge: settings section');
+    // and on the bundle's page under Plugins
     ctx.effect(() => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
       name: 'plugins.bundle.config', key: PKG,
-    }, Page)), 'wow-dsh-bridge: settings page');
+    }, Page)), 'wow-dsh-bridge: plugin page');
   };
   return module.exports;
 } });

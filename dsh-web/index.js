@@ -22,7 +22,11 @@ import { readAdvances } from './lib/ttf.mjs';
 import { findAddOns, addOnsOf, syncAddon, addonState, addonVersion, pickFolder, saveLocalConfig, FLAVOR } from './lib/setup.mjs';
 import { readSettings, serverInfo, SERVERS, FACTIONS } from './lib/settings.mjs';
 import { voiceStatus, runVoiceScript } from './lib/voice.mjs';
-import { packageInfo, checkUpdate } from './lib/update.mjs';
+import { packageInfo, checkUpdate, newer } from './lib/update.mjs';
+import { restartDshWeb, isDesktopHost } from './lib/restart.mjs';
+
+// the version this module was loaded as (an update without HMR leaves the old one running until dsh web restarts)
+const LOADED = packageInfo();
 
 export const name = 'wow-dsh-bridge';
 export const inject = ['sessionController', 'agents'];   // optional, via ctx.get(): approval, permissionPresets,
@@ -160,13 +164,18 @@ const textOf = (message) => (message?.content ?? []).filter((b) => b?.type === '
 // ---------------- plugin ----------------
 // <dataDir>/config.json: this computer's settings (WoW folder, workspace), merged over the bundle/profile config so a
 // profile override does not have to repeat the whole row. dataDir itself cannot be set there.
+let localConfigError = null;   // the last read error (a missing file is not one), for the startup log
 function localConfig(dataDir) {
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'));
+    const j = JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8').replace(/^﻿/, ''));
+    localConfigError = null;
     if (!j || typeof j !== 'object' || Array.isArray(j)) return {};
     const { dataDir: _ignored, ...rest } = j;
     return rest;
-  } catch { return {}; }
+  } catch (e) {
+    localConfigError = e?.code === 'ENOENT' ? null : String(e?.message ?? e);
+    return {};
+  }
 }
 
 export function apply(ctx, config) {
@@ -569,8 +578,22 @@ export function apply(ctx, config) {
   }
 
   // ----- settings page (client.js): server, faction, game folder, addon, voice, updates; served as exact routes -----
-  const info = packageInfo();
-  const update = { checking: false, applying: false, result: null, message: '' };
+  const info = LOADED;
+  const update = { checking: false, applying: false, result: null, message: '', restarted: null };
+  // <dataDir>/update.json { to, at }: written after an update installed; the instance running that version (after
+  // HMR or a restart) shows a one-time notice and removes it; an older instance shows "restart to finish"
+  const markerFile = path.join(cfg.dataDir, 'update.json');
+  const readMarker = () => { try { const j = JSON.parse(fs.readFileSync(markerFile, 'utf8')); return j && typeof j.to === 'string' ? j : null; } catch { return null; } };
+  const writeMarker = (to) => { try { fs.writeFileSync(markerFile, JSON.stringify({ to, at: new Date().toISOString() })); } catch (e) { log(`update.json：${e?.message}`); } };
+  {
+    const m = readMarker();
+    if (m && !newer(m.to, info.version)) {
+      update.restarted = m.to === info.version ? `已升级到 ${info.version}` : null;
+      try { fs.rmSync(markerFile, { force: true }); } catch { /* next start */ }
+      if (update.restarted) log(`${update.restarted}（运行中的版本）`);
+    }
+  }
+  const needsRestart = () => { const m = readMarker(); return m && newer(m.to, info.version) ? m.to : null; };
   let voiceBusy = false;
   const bad = (m) => Object.assign(new Error(m), { status: 400 });
   const installedVersion = () => {
@@ -595,7 +618,10 @@ export function apply(ctx, config) {
         missing: st?.missing ?? [], changed: st?.changed ?? [], slots: st?.slots ?? 0, waiting: installWaiting,
       },
       voice: { ...(await voiceStatus()), busy: voiceBusy },
-      update: { ...(update.result ?? {}), checking: update.checking, applying: update.applying, message: update.message },
+      update: {
+        ...(update.result ?? {}), current: info.version, checking: update.checking, applying: update.applying, message: update.message,
+        needsRestart: needsRestart(), restarted: update.restarted, desktop: isDesktopHost(),
+      },
     };
   }
 
@@ -647,6 +673,7 @@ export function apply(ctx, config) {
     const r = update.result;
     if (!r || r.error) return { error: r?.error ?? '检查更新失败' };
     if (!r.newer) return { error: `已经是最新版本（${info.version}）` };
+    if (needsRestart() && !newer(r.latest, needsRestart())) return { error: `${needsRestart()} 已经装好：重启 dsh web 就生效` };
     const pm = ctx.get('pluginManager');
     if (!pm?.updateBundle || !pm?.listBundles) return { error: '这个 DSH 没有插件管理服务：请在「插件」页重新安装下面的地址', spec: r.spec };
     let mine;
@@ -660,8 +687,20 @@ export function apply(ctx, config) {
     log(`${why === 'auto' ? '自动' : ''}升级到 ${r.latest}（提交 ${r.sha.slice(0, 7)}）`);
     pm.updateBundle(info.name, r.latest, { spec: r.spec }).then((res) => {
       const how = res?.result?.application ?? 'unknown';
+      const failed = !!res?.restore || how === 'failed' || how === 'cancelled';
       log(`升级结果：${res?.from ?? '?'} → ${res?.to ?? '?'}，${how}${res?.restore ? '（失败，已装回原版本）' : ''}`);
-      update.message = res?.restore || how === 'failed' ? '升级失败，已保留原版本（看 web-bridge.log）' : `已升级到 ${r.latest}`;
+      if (failed) { update.message = '升级失败，已保留原版本（看 web-bridge.log）'; return; }
+      writeMarker(r.latest);
+      // with HMR this instance was replaced by the new version already (disposed): nothing left to do
+      if (disposed) return;
+      if (why === 'manual' && !isDesktopHost()) {
+        update.message = `已升级到 ${r.latest}，正在重启 dsh web…`;
+        const rr = restartDshWeb();
+        log(rr.ok ? `重启 dsh web（助手进程 ${rr.pid}，日志 ${rr.outLog}）` : `重启失败：${rr.error}`);
+        if (!rr.ok) update.message = `已升级到 ${r.latest}：重启 dsh web 后生效（自动重启失败：${rr.error}）`;
+      } else {
+        update.message = `已升级到 ${r.latest}：重启 dsh web 后生效`;
+      }
     }).catch((e) => {
       log(`升级失败：${e?.message}`);
       update.message = `升级失败：${e?.message}`;
@@ -715,6 +754,13 @@ export function apply(ctx, config) {
       } finally { voiceBusy = false; }
     }],
     'update-check': ['POST', async () => { await checkNow(); return statusOf(); }],
+    restart: ['POST', async () => {
+      if (busy || queue.length) throw bad('正在回答游戏里的问题，等回答完再重启');
+      const r = restartDshWeb();
+      if (!r.ok) throw bad(`重启失败：${r.error}`);
+      log(`重启 dsh web（设置页；助手进程 ${r.pid}，日志 ${r.outLog}）`);
+      return { started: true, port: r.port, outLog: r.outLog };
+    }],
     update: ['POST', async () => ({ ...(await startUpdate('manual')), status: await statusOf() })],
   };
   const reply = (v, status = 200) => new Response(JSON.stringify(v), {
@@ -750,6 +796,8 @@ export function apply(ctx, config) {
       },
     });
     const watch = new HostGameWatch({ log, onStart, onExit });
+    log(`设置：${path.join(cfg.dataDir, 'config.json')} ${localConfigError ? `读不了（${localConfigError}）` : `有 ${Object.keys(local).length} 项`}；`
+      + `工作区「${cfg.workspaceTitle}」${workCwd}`);
     log(`启动：dsh web 插件，预设 ${cfg.preset}，`
       + (found ? `插件目录 ${ADDON_DIR}（${found.via === 'config' ? '配置' : found.via === 'battle.net' ? 'Battle.net 安装记录' : '常见安装位置'}）` : notFound));
     // keep an installed addon in step with this package (after a plugin update too; the game check decides what may

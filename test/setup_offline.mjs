@@ -7,6 +7,7 @@ import * as MB from '../dsh-web/lib/fontmail.mjs';
 import { saveLocalConfig } from '../dsh-web/lib/setup.mjs';
 import { apply } from '../dsh-web/index.js';
 import { newer, gitSpec, checkUpdate, packageInfo } from '../dsh-web/lib/update.mjs';
+import { portOf, helperSource, restartDshWeb, currentLaunch } from '../dsh-web/lib/restart.mjs';
 
 let failures = 0;
 const check = (ok, what) => { console.log(`${ok ? 'OK  ' : 'FAIL'} ${what}`); if (!ok) failures++; };
@@ -91,6 +92,20 @@ check(pi.name === '@local/dsh-wow-bridge' && pi.repo?.dir === 'dsh-web' && pi.re
 for (const dispose of effects) await dispose?.();
 await new Promise((r) => setTimeout(r, 200));
 check(fatal.length === 0, `no uncaught errors${fatal.length ? `: ${fatal.join('; ')}` : ''}`);
+
+// restarting dsh web after an update: same command line, the helper waits for the port, the old process exits
+check(portOf(['bin.js', '--profile', 'web']) === 3080 && portOf(['web', '--port', '3091']) === 3091 && portOf(['-p', '4000']) === 4000
+  && portOf(['--port=3082']) === 3082 && portOf(['--port', 'x']) === 3080, 'portOf reads --port / -p / --port=');
+const src = helperSource({ file: 'node', args: ['bin.js', '--profile', 'web'], cwd: 'C:/x' }, 3080, 'o.log', 'e.log');
+let syntaxOk = true;
+try { new Function('require', src); } catch { syntaxOk = false; }
+check(syntaxOk && src.includes('"--profile","web"') && src.includes('const port = 3080') && src.includes('detached: true'), 'helper source is valid JS and relaunches the same command');
+let spawned = null, exited = false;
+const rr = restartDshWeb({ spawnImpl: (file, args, opts) => { spawned = { file, args, opts }; return { pid: 4242, on() {}, unref() {} }; }, exit: () => { exited = true; }, delayMs: 10 });
+await new Promise((r) => setTimeout(r, 50));
+check(rr.ok && rr.pid === 4242 && spawned.args[0] === '-e' && spawned.opts.detached && exited && currentLaunch().args.includes(process.argv[1]), 'restartDshWeb starts the helper, then ends this process');
+const rf = restartDshWeb({ spawnImpl: () => { throw new Error('no spawn'); }, exit: () => { exited = 'again'; } });
+check(!rf.ok && rf.error === 'no spawn' && exited === true, 'a helper that cannot start: no exit, the error is reported');
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(failures ? `${failures} FAILED` : 'ALL OK');

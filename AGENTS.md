@@ -86,7 +86,13 @@
 - 仓库在 GitHub（`dsh-web/package.json` 的 `repository`，`directory: dsh-web`）。DSH 只能把“从 Git 固定提交装的”组合包升级到另一个固定提交
   （`git+https://github.com/<owner>/<repo>.git#<40 位提交号>&path:/dsh-web`），而且 Git 包没有版本列表，所以 `lib/update.mjs` 自己查：
   `main` 的最新提交 + 那个提交的 `dsh-web/package.json` 版本号，比现在的版本新就调 DSH 的 `pluginManager.updateBundle`。
-- 每 6 小时查一次，`autoUpdate`（默认开）时自动升级；正在回答问题时不升级。开发用的本地链接（`link:`）不会被升级。
+- 每 6 小时查一次（设置页打开时也查），`autoUpdate`（默认开）时在后台装好但**不自动重启**（dsh web 里可能有别的任务在跑）；
+  玩家点“升级到 x”时装好后自动重启。正在回答问题时不升级、不重启。开发用的本地链接（`link:`）不会被升级。
+- 重启（`lib/restart.mjs`，参考 dsh-pocket 的做法自己写的）：起一个分离的 node 助手进程，等 dsh web 的端口空出来再用同一条命令行
+  重新启动 dsh web（后台运行，输出在临时目录 `dsh-wow-bridge-restart-*.log`），旧进程随后退出。DSH 桌面版（Electron）不做。
+- `%APPDATA%\DSHBridge\update.json` 记着装好的新版本：运行中的版本比它旧就在设置页显示“重启 dsh web”；新版本起来后显示一次“已升级到 x”并删掉它。
+- 设置页挂两处：`settings.section`（设置里的一级入口“魔兽世界”，dsh-pocket 也是这样）和 `plugins.bundle.config`（插件详情页）。
+  dsh-pocket 是 GPL-2.0：只参考做法，不准抄它的代码（本仓库是 MIT）。
 - **发版就是改版本号再推到 main**：`dsh-web/package.json` 的 `version`（必须比上一版大，semver）和 `DSHChat.toc` 的 `## Version`。
   推之前全部测试要过：推上去的东西几小时内就会装到所有人的电脑上。
 
