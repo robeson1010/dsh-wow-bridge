@@ -45,8 +45,9 @@ const DEFAULTS = {
   answerTimeoutMs: 110000,
   staleS: 140,                // the addon gives up after 150 s (a late answer still prints)
   gameWatch: true,            // false = act as if the game were running (tests)
-  workspaceTitle: '魔兽世界无限服', // '' = plain cwd
-  workspacePath: null,        // the workspace folder (and the game sessions' cwd); null = <dataDir>/workspace
+  workspaceId: null,          // the DSH workspace (project) the game sessions join, picked on the settings page;
+                              // null = none (sessions run in <dataDir>/workspace, ungrouped). Never created here.
+  workspacePath: null,        // older setting: an existing workspace found by its folder (never created either)
   titlePrefix: '魔兽',
   model: null,                // optional { provider, model, reasoningEffort }: selected on new AND resumed sessions
                               // (select() is a no-op when unchanged); the wowf preset cannot set an effort itself
@@ -183,7 +184,7 @@ export function apply(ctx, config) {
   const dataDir = given.dataDir || DEFAULTS.dataDir;
   const local = localConfig(dataDir);
   const cfg = { ...DEFAULTS, ...given, ...local, dataDir };
-  const workCwd = cfg.workspacePath ? path.resolve(cfg.workspacePath) : path.join(cfg.dataDir, 'workspace');
+  const workCwd = path.join(cfg.dataDir, 'workspace');   // the cwd of sessions outside any workspace
   fs.mkdirSync(cfg.dataDir, { recursive: true });
   const logFile = path.join(cfg.dataDir, 'web-bridge.log');
   const logger = (() => { try { return ctx.logger(name); } catch { return undefined; } })();
@@ -239,7 +240,6 @@ export function apply(ctx, config) {
   };
   const queue = [];
   let busy = false;
-  let wsId;
 
   const sleep = (ms) => new Promise((resolve) => {
     const onAbort = () => { clearTimeout(t); resolve(); };
@@ -284,16 +284,44 @@ export function apply(ctx, config) {
   // ----- session per character -----
   const isArchived = (id) => { try { return !!ctx.get('workspaceRegistry')?.archivedSessionIds?.includes(id); } catch { return false; } };
 
+  // The workspace the game sessions join: the one picked on the settings page (config.json workspaceId), else an
+  // older workspacePath that matches an existing workspace. The plugin never creates a workspace: one it made in
+  // 0.5.0 kept coming back after the player removed it.
+  const registry = () => { try { return ctx.get('workspaceRegistry'); } catch { return undefined; } };
   async function workspaceId() {
-    if (!cfg.workspaceTitle) return undefined;
-    if (wsId) return wsId;
+    const reg = registry();
+    if (!reg) return undefined;
+    const local = localConfig(cfg.dataDir);
+    const want = local.workspaceId ?? cfg.workspaceId;
     try {
-      fs.mkdirSync(workCwd, { recursive: true });
-      const ws = await ctx.get('workspaceRegistry')?.create(workCwd, cfg.workspaceTitle);
-      wsId = ws?.id;
-      if (wsId) log(`工作区「${ws.title ?? cfg.workspaceTitle}」：${workCwd}`);
-    } catch (e) { log(`工作区注册失败，改用 cwd：${e?.message}`); }
-    return wsId;
+      if (want) {
+        const ws = reg.get(want);
+        if (!ws) log(`设置里的工作区 ${want} 已经不在了：游戏对话不放进工作区`);
+        return ws?.id;
+      }
+      const p = local.workspacePath ?? cfg.workspacePath;
+      if (p) return (await reg.resolveByPath(path.resolve(p)))?.id;
+    } catch (e) { log(`工作区：${e?.message}`); }
+    return undefined;
+  }
+  const workspaces = () => {
+    try { return (registry()?.list() ?? []).map((w) => ({ id: w.id, title: w.title, path: w.path })); } catch { return []; }
+  };
+
+  // 0.5.0 registered a workspace "魔兽世界无限服" at <dataDir>/workspace on every start. Remove that registration once
+  // (only that exact folder; DSH never deletes sessions or files when a workspace is removed).
+  async function removeOldWorkspace() {
+    const reg = registry();
+    if (!reg?.list || !reg?.delete) return;
+    const mine = path.resolve(workCwd).toLowerCase();
+    for (const w of reg.list()) {
+      let p = '';
+      try { p = path.resolve(w.path).toLowerCase(); } catch { continue; }
+      if (p !== mine) continue;
+      const n = w.sessionIds?.length ?? 0;
+      try { if (await reg.delete(w.id)) log(`移除了插件以前建的工作区「${w.title}」（${n} 个对话移到未分组，文件和对话都还在）`); }
+      catch (e) { log(`移除旧工作区失败：${e?.message}`); }
+    }
   }
 
   // 'wowf' registers asynchronously: right after dsh web starts it may not exist yet.
@@ -610,7 +638,11 @@ export function apply(ctx, config) {
     const st = ADDON_DIR ? addonState(ADDON_DIR) : null;
     return {
       plugin: { name: info.name, version: info.version, repo: info.repo ? `${info.repo.owner}/${info.repo.name}` : null },
-      settings: { ...readSettings(cfg.dataDir), wowDir: local.wowDir ?? null, autoUpdate: local.autoUpdate !== false },
+      settings: {
+        ...readSettings(cfg.dataDir), wowDir: local.wowDir ?? null, autoUpdate: local.autoUpdate !== false,
+        workspaceId: (await workspaceId()) ?? null,
+      },
+      workspaces: workspaces(),
       servers: Object.entries(SERVERS).map(([key, v]) => ({ key, label: v.label })),
       game: { addons: found?.addons ?? null, via: found?.via ?? null, detected, running, notFound: found ? null : notFound },
       addon: {
@@ -636,6 +668,13 @@ export function apply(ctx, config) {
       patch.faction = b.faction;
     }
     if (b.autoUpdate !== undefined) patch.autoUpdate = !!b.autoUpdate;
+    if (b.workspaceId !== undefined) {
+      const id = String(b.workspaceId ?? '').trim();
+      if (id && !workspaces().some((w) => w.id === id)) throw bad('没有这个工作区');
+      patch.workspaceId = id || undefined;
+      patch.workspacePath = undefined;   // the older setting goes with it
+      patch.workspaceTitle = undefined;
+    }
     if (b.wowDir !== undefined) {
       const dir = String(b.wowDir ?? '').trim();
       if (dir && !addOnsOf(dir, cfg.flavor)) throw bad(`「${dir}」里没有《魔兽世界：无限》（${cfg.flavor}\\Wow.exe）`);
@@ -647,6 +686,11 @@ export function apply(ctx, config) {
     const after = readSettings(cfg.dataDir);
     locate();
     if (b.wowDir !== undefined) log(`游戏目录：${ADDON_DIR ?? notFound}`);
+    if (b.workspaceId !== undefined) {
+      const w = workspaces().find((x) => x.id === patch.workspaceId);
+      log(`游戏对话的工作区：${w ? `「${w.title}」${w.path}` : '不放进工作区'}；各角色下个问题开新对话`);
+      store.rollAll();
+    }
     if (before.server !== after.server || before.faction !== after.faction) {
       const s = serverInfo(after);
       log(`服务器 ${s.label}，阵营 ${after.faction === 'auto' ? '按角色' : after.faction}：价格来自 ${s.prices === 'wuxianwow' ? '无限图鉴' : 'wowauctions'}；各角色下个问题开新对话`);
@@ -797,7 +841,7 @@ export function apply(ctx, config) {
     });
     const watch = new HostGameWatch({ log, onStart, onExit });
     log(`设置：${path.join(cfg.dataDir, 'config.json')} ${localConfigError ? `读不了（${localConfigError}）` : `有 ${Object.keys(local).length} 项`}；`
-      + `工作区「${cfg.workspaceTitle}」${workCwd}`);
+      + `对话工作区 ${(local.workspaceId ?? cfg.workspaceId) || (local.workspacePath ?? cfg.workspacePath) || '无'}`);
     log(`启动：dsh web 插件，预设 ${cfg.preset}，`
       + (found ? `插件目录 ${ADDON_DIR}（${found.via === 'config' ? '配置' : found.via === 'battle.net' ? 'Battle.net 安装记录' : '常见安装位置'}）` : notFound));
     // keep an installed addon in step with this package (after a plugin update too; the game check decides what may
@@ -814,9 +858,9 @@ export function apply(ctx, config) {
     const updateTimers = startUpdateChecks();
     intake.startPipe('\\\\.\\pipe\\' + cfg.pipeName);
     intake.startInbox();
-    // register the workspace now (detached: apply() must not wait on DSH services), so it shows up in dsh web
+    // remove the workspace 0.5.0 registered (detached: apply() must not wait on DSH services)
     // before the first in-game question
-    const early = setTimeout(() => { if (!disposed) workspaceId().catch((e) => log(`工作区：${e?.message}`)); }, 3000);
+    const early = setTimeout(() => { if (!disposed) removeOldWorkspace().catch((e) => log(`工作区：${e?.message}`)); }, 3000);
     return async () => {
       disposed = true;
       clearTimeout(early);

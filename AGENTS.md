@@ -90,6 +90,10 @@
   玩家点“升级到 x”时装好后自动重启。正在回答问题时不升级、不重启。开发用的本地链接（`link:`）不会被升级。
 - 重启（`lib/restart.mjs`，参考 dsh-pocket 的做法自己写的）：起一个分离的 node 助手进程，等 dsh web 的端口空出来再用同一条命令行
   重新启动 dsh web（后台运行，输出在临时目录 `dsh-wow-bridge-restart-*.log`），旧进程随后退出。DSH 桌面版（Electron）不做。
+- **插件不准自己建 DSH 工作区**：0.5.0 每次启动都注册“魔兽世界无限服”，玩家删了又冒出来。现在只用设置页选的已有工作区（config.json `workspaceId`），
+  启动时把以前在 `<dataDir>\workspace` 注册的那个移除一次（移除工作区不删对话和文件）。
+- **Claude 桌面版是打包应用**：在它里面跑的工具往 `%APPDATA%` 写文件会被 Windows 重定向到 `%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming`，
+  dsh web 看不到。要改 config.json 就让用户在设置页里改，别从这里直接写。
 - `%APPDATA%\DSHBridge\update.json` 记着装好的新版本：运行中的版本比它旧就在设置页显示“重启 dsh web”；新版本起来后显示一次“已升级到 x”并删掉它。
 - 设置页挂两处：`settings.section`（设置里的一级入口“魔兽世界”，dsh-pocket 也是这样）和 `plugins.bundle.config`（插件详情页）。
   dsh-pocket 是 GPL-2.0：只参考做法，不准抄它的代码（本仓库是 MIT）。

@@ -43,6 +43,20 @@ function makeAgent(id) {
 }
 
 const routes = {};
+// DSH's workspace registry: the player's own "魔兽世界" and the one 0.5.0 registered at <dataDir>/workspace
+const wsRecords = new Map([
+  ['ws-wow', { id: 'ws-wow', title: '魔兽世界', path: path.join(tmp, 'code'), sessionIds: [] }],
+  ['ws-old', { id: 'ws-old', title: '魔兽世界无限服', path: path.join(dataDir, 'workspace'), sessionIds: [] }],
+]);
+const wsCalls = { create: 0, deleted: [] };
+const wsRegistry = {
+  archivedSessionIds: [],
+  list: () => [...wsRecords.values()],
+  get: (id) => wsRecords.get(id),
+  delete: async (id) => { wsCalls.deleted.push(id); return wsRecords.delete(id); },
+  resolveByPath: async (p) => [...wsRecords.values()].find((w) => path.resolve(w.path) === path.resolve(p)),
+  create: async () => { wsCalls.create++; return { id: 'ws-new' }; },
+};
 const ctx = {
   logger: () => ({ info: () => {} }),
   disposers: [],
@@ -64,7 +78,7 @@ const ctx = {
     return {
       approval: { overrideOf: (s) => [...calls.appended].reverse().find((a) => a[0] === s.id && a[1] === 'approval/policy')?.[2] },
       permissionPresets: { set: (s, p) => calls.presetSet.push([s.id, p]), current: () => 'custom' },
-      workspaceRegistry: { create: async () => ({ id: 'ws-1' }), archivedSessionIds: [] },
+      workspaceRegistry: wsRegistry,
       sessionTitle: { rename: () => {} },
     }[nameOf];
   },
@@ -74,8 +88,9 @@ const ctx = {
       const a = agents.get(id);
       return a ? { agent: a } : { error: { code: 'session/not-found' } };
     },
-    async create({ sessionId, agentPreset }) {
+    async create({ sessionId, agentPreset, workspaceId, cwd }) {
       calls.create++;
+      calls.where = { workspaceId, cwd };
       makeAgent(sessionId);
       if (createFail === 'attach') {
         createFail = null;
@@ -176,6 +191,8 @@ check(logText().includes(`EADDRINUSE`), '(f) pipe busy: the plugin logs EADDRINU
 dummy.close();
 await sleep(5600);
 check(logText().includes('listening on'), '(f) after the pipe is free the plugin takes it over');
+check(wsCalls.deleted.join() === 'ws-old' && wsRecords.has('ws-wow') && wsCalls.create === 0 && logText().includes('移除了插件以前建的工作区「魔兽世界无限服」'),
+  '(m) the workspace 0.5.0 registered is removed once, nothing is created, the player\'s own stays');
 
 // (a) a question is answered into slot 1 and the character gets a session
 const id1 = await send({ type: 'ask', q: '我在哪？' });
@@ -268,6 +285,14 @@ const sCN = await waitSlot(16);
 const sidCN = sessions()['Tester-Forever'].sessionId;
 const firstCN = agents.get(sidCN).history[0];
 check(sCN?.text.includes('第1轮') && sidCN !== before, `(l) a new session after the change: ${sCN?.text}`);
+check(!calls.where.workspaceId && calls.where.cwd === path.join(dataDir, 'workspace'), `(m) no workspace picked: sessions are outside any workspace: ${JSON.stringify(calls.where)}`);
+const pick = await api('settings', { workspaceId: 'ws-wow' });
+const badWs = await api('settings', { workspaceId: 'ws-none' });
+check(pick.status === 200 && pick.body.settings.workspaceId === 'ws-wow' && pick.body.workspaces.length === 1 && badWs.status === 400,
+  '(m) the settings page lists the workspaces and saves the pick');
+await send({ type: 'ask', q: '工作区问题' });
+const sWs = await waitSlot(17);
+check(sWs?.text.includes('第1轮') && calls.where.workspaceId === 'ws-wow' && wsCalls.create === 0, `(m) the next session joins the picked workspace: ${JSON.stringify(calls.where)}`);
 check(firstCN.includes('服务器：国服 PvP，联盟') && firstCN.includes('"pvp-alliance"') && firstCN.includes('"faction":"Alliance"'), '(l) server line + faction override in the first message');
 
 // (e) dispose in the middle of a question: no slot is written
@@ -276,7 +301,7 @@ await send({ type: 'ask', q: '卸载时的问题' });
 await sleep(300);
 for (const d of ctx.disposers) await d();
 await sleep(2500);
-check(readSlot(17) === null, '(e) no mailbox write after the plugin was disposed');
+check(readSlot(18) === null, '(e) no mailbox write after the plugin was disposed');
 
 // (g) nothing escaped as an uncaught exception or unhandled rejection
 check(fatal.length === 0, `(g) no uncaught exceptions / unhandled rejections${fatal.length ? `: ${fatal.join(' | ')}` : ''}`);

@@ -111,6 +111,17 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
         : '价格和商机：wowauctions.net（大约每小时扫描一次），按规则集和阵营选拍卖行。'),
       h('div', { style: css.muted }, '“按角色自动”用游戏里当前角色的阵营。'));
 
+    // 1b. where the game conversations go in dsh web
+    const wsList = st.workspaces || [];
+    const chats = h(Section, { title: '游戏对话放在哪里' },
+      h(Line, null,
+        h('label', null, '工作区 '),
+        h('select', { style: css.select, value: s.workspaceId || '', disabled: !!busy,
+          onChange: (e) => run('ws', 'settings', { workspaceId: e.target.value }, () => setNote('已保存：各角色下一个问题会在这里开新对话。')) },
+          h('option', { value: '' }, '不放进工作区'),
+          wsList.map((w) => h('option', { key: w.id, value: w.id }, `${w.title}（${w.path}）`)))),
+      h('div', { style: css.muted }, '游戏里的提问在 dsh web 里是一个个对话（“魔兽 · 角色名”）。选一个已有的工作区，它们就排在那个工作区下面；插件不会自己建工作区。'));
+
     // 2. game folder
     const g = st.game;
     const via = { config: '你设置的', 'battle.net': 'Battle.net 安装记录', common: '常见安装位置' }[g.via] || '';
@@ -183,7 +194,7 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
     return h('div', { style: css.page },
       err ? h('div', { style: { ...css.err, whiteSpace: 'pre-wrap' } }, err) : null,
       note ? h('div', { style: css.ok }, note) : null,
-      server, folder, addon, voice, updates);
+      server, chats, folder, addon, voice, updates);
   }
 
   exports.inject = ['slots'];

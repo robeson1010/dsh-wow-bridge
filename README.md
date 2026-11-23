@@ -1,4 +1,4 @@
-# DSH Bridge（0.5.0）
+# DSH Bridge（0.5.1）
 
 在《魔兽世界：无限》聊天框里加一个只在本地的 **[DSH] 频道**：在里面提问，由你电脑上的 DeepSeek Harness（DSH）回答，回答显示在聊天框里。
 还能翻译（中文 ↔ 英文），查拍卖行行情和制作利润，在地图上标位置，把要买的材料放进 Auctionator 购物清单。
@@ -73,7 +73,7 @@
     问鼠标指着的物品的行情（指着背包里的物品直接按）。
   - 自己的问题：`/dshc add 问题`（可以 Shift 点物品，最多 30 条）、`/dshc list`、`/dshc del 编号`。
     按钮：`/dshc button off`（隐藏，快捷键照样能用）、`on`、`reset`（回到默认位置）。
-- 在 dsh web 里：游戏里的对话（“魔兽 · 角色名-服务器”）在工作区“魔兽世界无限服”下，可以直接看。
+- 在 dsh web 里：游戏里的对话叫“魔兽 · 角色名-服务器”，可以直接看。在设置页的“游戏对话放在哪里”选一个已有的工作区，它们就排在那下面（插件不会自己建工作区）。
   新建任务时模式列表里会多一个“魔兽世界无限服”（游戏专用，只读资料工具）：别把它设成默认。
 
 ## 资料和价格从哪来
@@ -95,14 +95,14 @@
 设置页改的东西都写在 `%APPDATA%\DSHBridge\config.json`（这台电脑自己的设置，盖过 `cordis.patch.yml` 里的同名项）：
 
 ```json
-{ "server": "eu-pvp", "faction": "auto", "wowDir": "E:/Games/World of Warcraft", "autoUpdate": true }
+{ "server": "eu-pvp", "faction": "auto", "wowDir": "E:/Games/World of Warcraft", "workspaceId": "…", "autoUpdate": true }
 ```
 
 - `server`：`eu-pvp`、`eu-pve`、`eu-rp`、`eu-rp-pvp`、`us-pvp`、`us-pve`、`us-rp`、`us-rp-pvp`、`cn-pvp`、`cn-normal`、`cn-rp`。
 - `faction`：`auto`（按角色）、`Horde`、`Alliance`。
 - `wowDir`：游戏目录（不写就自动找）；也可以用 `addons` 直接给 AddOns 目录。
 - `autoUpdate`：`false` 关掉自动升级。
-- `workspaceTitle`、`workspacePath`：游戏对话放在哪个 DSH 工作区（默认“魔兽世界无限服”，`%APPDATA%\DSHBridge\workspace`）。
+- `workspaceId`：游戏对话放进哪个已有的 DSH 工作区（设置页里选；不写就不放进工作区）。
 
 ## 改回答方式
 
@@ -137,5 +137,3 @@
 - dsh web 没开时问题收不到；超过 140 秒的旧问题会丢弃，游戏里 150 秒后提示没回答。
 - 会话越聊越长，每个问题都会带上之前的历史（花更多 token）。所以每答满 12 个问题（或者对话太长）会自动开新对话，
   新对话会带上上一段的最后一问一答；想马上换话题也可以 `/dshc reset`。每个问题用了多少 token 记在 `web-bridge.log`。
-
-作者：加拿大雨姐。MIT 许可证，见 `LICENSE`。代码部分改编自 Forever AI Companion 和 无限工坊（均为 MIT），见 `THIRD_PARTY_NOTICES.md`。
