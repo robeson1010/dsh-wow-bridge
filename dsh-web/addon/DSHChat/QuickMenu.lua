@@ -1,6 +1,6 @@
 -- Quick questions: a draggable "DSH" button that opens a menu of common questions, two key bindings (open the menu;
 -- ask the market question about the item under the mouse) and the player's own questions (/dshc add|del|list).
--- The menu also opens DSHChat's own input box (a question / a translation), starts a new conversation and (once an answer listed
+-- The menu also opens DSHChat's own translation box, starts a new conversation and (once an answer listed
 -- materials) adds that shopping list to Auctionator; while a question waits for its answer the button shows
 -- "正在回复… N 秒" beside it.
 -- Blizzard_Menu (MenuUtil / Menu.GetManager) is in this client and calls the generator and the callbacks through
@@ -127,20 +127,20 @@ end
 QuickMenu.Label = function(q) return Truncate(Plain(q), LABEL_CHARS) end
 
 -- ---- the menu ----
--- typing a question / a translation: in DSHChat's own box (Core.OpenAsk / OpenTranslate). Opening Blizzard's chat
--- box from addon code taints it and blocks the player's next real message (see Core.lua, Box).
-local function OpenChannel() Core.OpenAsk() end
-QuickMenu.OpenChannel = OpenChannel
-
+-- Typing a question: only in the chat box with /dsh, typed by the player. The menu cannot switch the chat box to the
+-- DSH channel: opening Blizzard's chat box or setting its chat type from addon code taints it and blocks the player's
+-- next real message (see Core.lua, Box), and a popup box of our own was clumsy (removed in 0.5.4). The entry is a hint.
+-- A translation still uses DSHChat's own box (Core.OpenTranslate).
 local function OpenTranslate() Core.OpenTranslate() end
 QuickMenu.OpenTranslate = OpenTranslate
 
 local function Generate(_, root)
 	root:CreateTitle("DSH 快捷提问")
-	local ask = root:CreateButton("打字提问", OpenChannel)
+	local ask = root:CreateButton("打字提问：在聊天框打 /dsh")
+	ask:SetEnabled(false)
 	ask:SetTooltip(function(tt)
 		GameTooltip_SetTitle(tt, "打字提问")
-		GameTooltip_AddNormalLine(tt, "弹出输入框，回车就问 DSH。也可以在聊天框打 /dsh 问题（可以 Shift 点物品链接）。")
+		GameTooltip_AddNormalLine(tt, "在聊天框打 /dsh 加空格，聊天框就切到 DSH 频道，打问题回车（可以 Shift 点物品链接）。之后按回车聊天框还停在 DSH 频道，像 /s 一样；切回别的频道打 /s、/g 之类。")
 	end)
 	local tr = root:CreateButton("帮我翻译（中文↔英文）", OpenTranslate)
 	tr:SetTooltip(function(tt)

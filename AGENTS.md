@@ -81,7 +81,7 @@
    `ChatFrameUtil.InsertLink` 之类）：聊天类型和对象是编辑框属性，插件写过就被污染，玩家下一句真话读到它，受限的
    `C_ChatInfo.SendChatMessage` 被拦（“DSHChat has been blocked from an action only available to the Blizzard UI”），
    而且污染的类型会变成固定频道，之后每一句都被拦（0.5.0 的 [填入聊天框] 和菜单的 OpenChat 就是这样，0.5.2 改掉）。
-   要输入就用 `Core.OpenAsk`/`Core.OpenTranslate` 的自建输入框，要给玩家文字就用 `Core.ShowCopy`（选中后 Ctrl+C）。
+   提问只能由玩家在聊天框打 `/dsh`（菜单的“打字提问”只是提示；0.5.3 以前的提问弹窗体验差，0.5.4 去掉了），翻译用 `Core.OpenTranslate` 的自建输入框，要给玩家文字就用 `Core.ShowCopy`（选中后 Ctrl+C）。
    预发送回调 `ChatFrame.OnEditBoxPreSendText` 对真实频道的消息什么都不读不写，只处理 DSH/DSHT 两个类型。
    聊天框里的 `|Haddon:DSHChat:buy:N|h` 链接由暴雪的 addon 链接处理器转给 `EventRegistry` 的 "SetItemRef"（Forever 的 ItemRefHandlersShared.lua）。
    地图位置同样**不自动标**：渲染成暴雪原生的 `|Hworldmap:uiMapID:x*100:y*100|h` 链接，点了由暴雪自己的处理器放地图标记（不经过我们的代码，没有污染）。

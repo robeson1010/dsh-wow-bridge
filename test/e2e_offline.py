@@ -446,7 +446,8 @@ def main():
         top = items(None)
         labels = [(x.kind.decode(), text(x)) for x in top]
         assert labels[0] == ('title', 'DSH 快捷提问'), labels
-        assert labels[1:5] == [('button', '打字提问'), ('button', '帮我翻译（中文↔英文）'), ('button', '开新对话（/dshc reset）'), ('divider', '')], labels
+        assert labels[1:5] == [('button', '打字提问：在聊天框打 /dsh'), ('button', '帮我翻译（中文↔英文）'), ('button', '开新对话（/dshc reset）'), ('divider', '')], labels
+        assert top[1].enabled is False and top[1].cb is None, 'typing a question: a hint only, no popup'
         assert [l[1] for l in labels[5:8]] == ['我现在该做什么？', '附近有什么任务？', '这里适合刷什么？'], labels
         market = top[8]
         assert text(market) == '行情：鼠标指着的物品' and market.enabled is False, 'no item hovered: greyed out'
@@ -455,16 +456,13 @@ def main():
         assert sub[0] == ('button', 'Tailoring  150/300') and sub[1][0] == 'divider', sub   # own profession first, child id 2948 -> 197
         assert '裁缝' not in [s[1] for s in sub[2:]] and len(sub) == 2 + 8, sub           # the other 8, herbalism skipped
         assert text(top[11]).startswith('自定义问题') and top[11].enabled is False and len(top) == 12, labels
-        # 打字提问 / 帮我翻译: DSHChat's own input box opens (focused, empty); Blizzard's chat box is not touched
-        top[1].cb()
+        # 帮我翻译: DSHChat's own input box opens (focused, empty); Blizzard's chat box is not touched
+        top[2].cb()
         box_eb = [f for f in g.FRAMES.values() if f.kind == b'EditBox'][0]
         box = box_eb.parent
-        assert box.shown is True and box_eb.focused is True and box_eb.text == b'' and box.title.text.decode() == '问 DSH', box.title.text
+        assert box.shown is True and box_eb.focused is True and box_eb.text == b'' and box.title.text.decode().startswith('DSH 翻译'), box.title.text
         box_eb.scripts[b'OnEscapePressed'](box_eb)
         assert box.shown is False
-        top[2].cb()
-        assert box.shown is True and box.title.text.decode().startswith('DSH 翻译'), box.title.text
-        box_eb.scripts[b'OnEscapePressed'](box_eb)
         assert len(g.CHAT_TOUCHED) == 0, list(g.CHAT_TOUCHED.values())
         # a fixed question; a double click sends once
         h.client.spoken.clear()

@@ -124,11 +124,7 @@ local function OpenBox(title, hint, text, onEnter, keepOpen)
 	if text then f.eb:HighlightText() else f.eb:SetCursorPosition(0) end
 end
 
--- the quick menu's 进入 DSH 频道 / 帮我翻译
-function Core.OpenAsk()
-	OpenBox("问 DSH", "回车提问，Esc 关闭（要带物品链接就在聊天框打 /dsh 再 Shift 点物品）", nil,
-		function(text) Core:Ask(text) end, false)
-end
+-- the quick menu's 帮我翻译 (questions are typed in the chat box with /dsh: no box of ours)
 function Core.OpenTranslate()
 	OpenBox("DSH 翻译（中文 → 英文，英文 → 中文）", "回车翻译，可以接着打下一句；Esc 关闭", nil,
 		function(text) Core:Translate(text) end, true)
@@ -942,7 +938,7 @@ SlashCmdList.DSHC = function(msg)
 		Say("翻译：输入 /dsht 进入 [DSH 翻译]（或 DSH 按钮菜单里的“帮我翻译”），打中文翻成英文、打英文翻成中文；点译文后面的 [复制译文]，Ctrl+C 复制，到聊天框 Ctrl+V 发出去")
 		Say("地图：回答里的 [地图标记] 链接点了才在地图上放游戏自带的标记（问题里说“标到地图”“帮我导航”“带我去”会直接标第一个）")
 		Say("采购清单：DSH 列出要买的材料后，点 [加进 Auctionator] 或打 /dshc buy，才会放进 Auctionator 购物清单「" .. BUY_LIST .. "」（问题里说“加进购物清单”也行）")
-		Say("快捷提问：点 DSH 按钮（也能进频道、开新对话；等回答时按钮旁显示“正在回复…”），或在 按键设置 › DSH 频道 绑快捷键 · /dshc add 问题 · /dshc del 编号 · /dshc list · /dshc button on|off|reset")
+		Say("快捷提问：点 DSH 按钮（也能翻译、开新对话；等回答时按钮旁显示“正在回复…”），或在 按键设置 › DSH 频道 绑快捷键 · /dshc add 问题 · /dshc del 编号 · /dshc list · /dshc button on|off|reset")
 	end
 end
 

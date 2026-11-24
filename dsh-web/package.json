@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-wow-bridge",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "description": "《魔兽世界：无限》游戏内 [DSH] 频道：提问、翻译、行情（欧服/美服 wowauctions，国服 无限图鉴）、地图标记、采购清单；带游戏插件、静音语音和设置页",
   "license": "MIT",
