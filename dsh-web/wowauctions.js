@@ -40,8 +40,9 @@ const pct = (x) => (typeof x === 'number' && Number.isFinite(x) ? `${x > 0 ? '+'
 const SELL_LABEL = { very_high: '非常好卖', high: '好卖', medium: '一般', low: '难卖', very_low: '很难卖' };
 const TREND_LABEL = { steady: '稳定赚', losing: '在亏', recently_profitable: '最近才开始赚', new: '新出现', volatile: '波动大' };
 
-// Trade supplies that vendors sell (classic item ids). The profession page marks every reagent's price as an AH price,
-// so without this the "商人" marker never shows and vendor materials would land on the AH shopping list.
+// Trade supplies that vendors sell (classic item ids). Only a fallback now: whether a vendor sells an item comes from
+// 无限图鉴's vendor lists (./vendors.js); this list answers when that lookup failed. Never use wowauctions'
+// available_from_vendor (true for every item) or price_source (always "ah").
 export const VENDOR_REAGENTS = new Set([
   2320, 2321, 4291, 8343, 14341,                                   // Coarse / Fine / Silken / Heavy Silken / Rune Thread
   2324, 2325, 2604, 2605, 4340, 4341, 4342, 6260, 6261, 10290,     // Bleach and the vendor dyes
@@ -51,7 +52,29 @@ export const VENDOR_REAGENTS = new Set([
   2880, 3466, 4399, 4400,                                          // Weak / Strong Flux, Wooden / Heavy Stock
   159, 1179, 2678, 2692, 3713,                                     // Spring Water, Ice Cold Milk, Mild / Hot / Soothing Spices
 ]);
-const fromVendor = (m) => m.price_source === 'vendor' || VENDOR_REAGENTS.has(m.item_id);
+// vendor answer for one item: the 无限图鉴 lookup when known, else the fallback list (base price from the item page)
+function vendorOf(id, looked, buyPrice) {
+  if (looked && typeof looked === 'object') return looked;
+  if (VENDOR_REAGENTS.has(id)) return { sold: true, common: true, fallback: true, unit: buyPrice > 0 ? buyPrice : undefined };
+  return looked === undefined ? undefined : null;   // undefined: not looked up; null: lookup failed
+}
+const perStack = (v) => (v.count > 1 && v.copper ? `${coins(v.copper)} / ${v.count} 个` : `${coins(v.unit)}/个`);
+function vendorLine(v) {
+  if (v?.sold && !v.common) {
+    const price = v.unit ? `，客户端基础价 ${perStack(v)}` : '';
+    const names = v.who?.length ? `：${v.who.join('、')}` : '';
+    const classic = v.classicOnly ? '；这条是经典旧世的数据，无限服没人核实过' : '';
+    return `只有 ${v.vendors} 个商人有${names}${price}（可能限量或要声望${classic}；无限图鉴商人货单，临时数据：${v.url}），要多买还是看拍卖行`;
+  }
+  if (v?.sold) {
+    const price = v.unit ? `，${perStack(v)}（客户端基础价，尊敬起打折）` : '';
+    const src = v.fallback ? '（常见商人材料）' : `，${v.vendors} 个商人有货（无限图鉴商人货单，临时数据：${v.url}）`;
+    return `商人有卖${price}${src}`;
+  }
+  if (v && v.sold === false) return `商人不卖：无限图鉴的商人货单里没有它（${v.url}），只能拍卖行买或自己打、做`;
+  if (v === null) return '商人卖不卖：这次没查到，不能说商人有卖';
+  return '';
+}
 
 export function nextData(html) {
   const m = /<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/.exec(String(html));
@@ -67,13 +90,17 @@ function ago(iso, now) {
 }
 
 // ---- one item ----
-export function itemMarketText(pp, { faction, url, server = '欧服 PvP', now = Date.now() }) {
+// vendor: the vendors.js answer for this item (undefined = not looked up, null = lookup failed)
+export function itemMarketText(pp, { faction, url, server = '欧服 PvP', now = Date.now(), vendor }) {
   const info = pp?.item?.item_info ?? {};
+  const ven = vendorOf(Number(info.entry), vendor, info.BuyPrice);
+  const sellLine = info.SellPrice ? `卖店价 ${coins(info.SellPrice)}（卖给商人得到的钱，不代表商人卖它）` : '';
+  const venLine = vendorLine(ven);
   const row = pp?.v2?.row;
   const nameOf = `${info.name ?? '未知物品'}（item:${info.entry ?? '?'}）`;
   const head = `${nameOf} · ${server} ${factionZh(faction)}拍卖行（wowauctions.net）`;
   if (!row || typeof row.min_buyout !== 'number') {
-    return `${head}\n最近的扫描里没有在售。${info.SellPrice ? `商店收购价 ${coins(info.SellPrice)}。` : ''}\n${url}`;
+    return [head, '最近的扫描里没有在售。', sellLine, venLine, url].filter(Boolean).join('\n');
   }
   const st = row.stats ?? {};
   const sales = row.sales_7d ?? {};
@@ -87,13 +114,12 @@ export function itemMarketText(pp, { faction, url, server = '欧服 PvP', now = 
   if (typeof sales.sold_per_day === 'number') {
     lines.push(`近 7 天每天约卖出 ${Math.round(sales.sold_per_day)} 个，成交率 ${pct(sales.sell_through_pct).replace('+', '')}（${SELL_LABEL[sales.sellability_label] ?? sales.sellability_label ?? '未知'}）`);
   }
-  if (info.SellPrice || info.BuyPrice) {
-    lines.push(`商店收购价 ${coins(info.SellPrice ?? 0)}${info.available_from_vendor && info.BuyPrice ? `；商人也卖，${coins(info.BuyPrice)}` : ''}`);
-  }
+  if (sellLine) lines.push(sellLine);
+  if (venLine) lines.push(venLine);
   // verdicts (approximations of the 商机 rules with what one item page gives)
   const v = [];
-  if (info.SellPrice > 0 && min < info.SellPrice) v.push(`捡漏·卖店：最低挂单比商店收购价低 ${coins(info.SellPrice - min)}/个，买下直接卖店（挂单数量看页面）`);
-  if (info.available_from_vendor && info.BuyPrice > 0 && min > info.BuyPrice) v.push(`商人卖得更便宜（${coins(info.BuyPrice)}），别在拍卖行买`);
+  if (info.SellPrice > 0 && min < info.SellPrice) v.push(`捡漏·卖店：最低挂单比卖店价低 ${coins(info.SellPrice - min)}/个，买下直接卖店（挂单数量看页面）`);
+  if (ven?.sold && ven.common && ven.unit > 0 && min > ven.unit) v.push(`商人卖得更便宜（${coins(ven.unit)}/个），别在拍卖行买`);
   if (typeof st.median_30d === 'number' && st.median_30d > 0) {
     const r = min / st.median_30d;
     if (r <= 0.8) v.push(`偏低：最低价是 30 天中位数的 ${Math.round(r * 100)}%，可以考虑低吸（不保证回升）`);
@@ -111,27 +137,45 @@ export function itemMarketText(pp, { faction, url, server = '欧服 PvP', now = 
 }
 
 // ---- one profession ----
-export function craftProfitText(pp, { faction, url, server = '欧服 PvP', limit = 8, now = Date.now() }) {
+const capLimit = (limit) => Math.max(1, Math.min(Number.isFinite(Number(limit)) ? Number(limit) : 8, 20));
+function profitable(ini) {
+  return ini.recipes.filter((r) => typeof r.profit === 'number' && r.profit > 0)
+    .sort((a, b) => (b.profit * Math.min(1, (b.output?.sales?.sold_per_day ?? 0) / 20)) - (a.profit * Math.min(1, (a.output?.sales?.sold_per_day ?? 0) / 20)));
+}
+// the reagent ids craftProfitText will show (to look up their vendors first)
+export function shownReagentIds(pp, limit = 8) {
+  const ini = pp?.initial;
+  if (!ini || !Array.isArray(ini.recipes)) return [];
+  return [...new Set(profitable(ini).slice(0, capLimit(limit)).flatMap((r) => (r.reagents ?? []).slice(0, 8).map((m) => m.item_id)).filter(Boolean))];
+}
+
+// vendors: Map(id -> vendors.js answer) for the shown reagents (optional)
+export function craftProfitText(pp, { faction, url, server = '欧服 PvP', limit = 8, now = Date.now(), vendors }) {
   const ini = pp?.initial;
   if (!ini || !Array.isArray(ini.recipes)) throw new Error('wowauctions 专业页里没有配方数据（网站可能改版了）。');
   const name = pp.professionName ?? ini.name ?? '专业';
   const cut = ini.ah_cut_percent ?? 5;
   const shown = ini.recipes.length;
-  const good = ini.recipes.filter((r) => typeof r.profit === 'number' && r.profit > 0)
-    .sort((a, b) => (b.profit * Math.min(1, (b.output?.sales?.sold_per_day ?? 0) / 20)) - (a.profit * Math.min(1, (a.output?.sales?.sold_per_day ?? 0) / 20)));
+  const good = profitable(ini);
+  const matTag = (m) => {
+    const v = vendorOf(m.item_id, vendors?.get(m.item_id), undefined);
+    if (v?.sold && !v.common) return `·少数商人有${v.who?.length ? `：${v.who[0]}` : ''}`;
+    return v?.sold ? `·商人有卖${v.unit ? ` ${coins(v.unit)}` : ''}` : '';
+  };
   const lines = [`${name} 制作利润 · ${server} ${factionZh(faction)}（wowauctions.net，按近几天市场价，已扣拍卖行 ${cut}% 手续费，押金不算）`,
     `共 ${ini.total ?? '?'} 个配方，${ini.profitable ?? '?'} 个赚钱；这里看的是销量最好的 ${shown} 个，其中赚钱的 ${good.length} 个：`];
-  for (const r of good.slice(0, Math.max(1, Math.min(limit, 20)))) {
+  for (const r of good.slice(0, capLimit(limit))) {
     const out = r.output ?? {};
     const sales = out.sales ?? {};
     const tr = r.trend ?? {};
     const made = out.count_min && out.count_max && out.count_min !== out.count_max ? `${out.count_min}-${out.count_max}` : (out.count_min ?? 1);
-    const mats = (r.reagents ?? []).slice(0, 8).map((m) => `${m.name}${m.item_id ? `（item:${m.item_id}）` : ''}×${m.count}（${coins(m.unit_price)}${fromVendor(m) ? '·商人' : ''}）`).join('、');
+    const mats = (r.reagents ?? []).slice(0, 8).map((m) => `${m.name}${m.item_id ? `（item:${m.item_id}）` : ''}×${m.count}（拍卖 ${coins(m.unit_price)}${matTag(m)}）`).join('、');
     lines.push(`- ${out.name ?? r.name}（item:${out.item_id ?? '?'}）×${made}：成本 ${coins(r.cost)}，卖 ${coins(r.value)}，利润 ${coins(r.profit)}；`
       + `日销约 ${Math.round(sales.sold_per_day ?? 0)}（${SELL_LABEL[sales.label] ?? sales.label ?? '?'}）；`
       + `趋势：${TREND_LABEL[tr.label] ?? tr.label ?? '?'}，${tr.profitable_days ?? '?'}/${tr.days_with_data ?? '?'} 天赚钱；材料：${mats || '—'}`);
   }
   if (!good.length) lines.push('（销量最好的这些配方现在都不赚钱）');
+  if (vendors?.size) lines.push('材料标“商人有卖”的来自无限图鉴 wuxianwow.com 的商人货单（临时数据，价格是客户端基础价）；成本按拍卖价算，商人有卖的材料实际更便宜，不进拍卖行采购清单。标“少数商人有”的只有一两个商人卖（可能限量或要声望），照常算拍卖行材料。');
   lines.push(url);
   return lines.join('\n');
 }

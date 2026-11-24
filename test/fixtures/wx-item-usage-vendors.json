@@ -1,0 +1,95 @@
+{
+ "3371": {
+  "outcome": "ok",
+  "id": "item:3371",
+  "url": "https://wuxianwow.com/item/3371",
+  "item_id": 3371,
+  "title": "空瓶",
+  "sell": 1,
+  "temporary_vendors": {
+   "total_vendors": 118,
+   "base_price": {
+    "copper": 20,
+    "count": 5,
+    "text": "20铜 / 5 个",
+    "note": "客户端的基础价（ItemSparse BuyPrice），中立、友善按它卖，尊敬起打折"
+   },
+   "common": true,
+   "vendors": [
+    {
+     "npc_id": 1257,
+     "name": "凯德雷克·布舍尔",
+     "zone": "暴风城"
+    },
+    {
+     "npc_id": 3348,
+     "name": "考吉尔德",
+     "zone": "奥格瑞玛"
+    }
+   ]
+  }
+ },
+ "14047": {
+  "outcome": "ok",
+  "id": "item:14047",
+  "url": "https://wuxianwow.com/item/14047",
+  "item_id": 14047,
+  "title": "符文布",
+  "sell": 400
+ },
+ "14256": {
+  "outcome": "ok",
+  "id": "item:14256",
+  "url": "https://wuxianwow.com/item/14256",
+  "item_id": 14256,
+  "title": "恶魔布",
+  "sell": 2000,
+  "temporary_vendors": {
+   "total_vendors": 1,
+   "base_price": {
+    "copper": 8000,
+    "count": 1,
+    "text": "80银",
+    "note": "客户端的基础价（ItemSparse BuyPrice），中立、友善按它卖，尊敬起打折"
+   },
+   "vendors": [
+    {
+     "npc_id": 16015,
+     "name": "维尔",
+     "zone": "冬泉谷",
+     "source": "QuestieDB"
+    }
+   ]
+  }
+ },
+ "14341": {
+  "outcome": "ok",
+  "id": "item:14341",
+  "url": "https://wuxianwow.com/item/14341",
+  "item_id": 14341,
+  "title": "符文线",
+  "sell": 1250,
+  "temporary_vendors": {
+   "total_vendors": 61,
+   "base_price": {
+    "copper": 5000,
+    "count": 1,
+    "text": "50银",
+    "note": "客户端的基础价（ItemSparse BuyPrice），中立、友善按它卖，尊敬起打折"
+   },
+   "common": true,
+   "vendors": [
+    {
+     "npc_id": 1347,
+     "name": "亚历山德拉·波利罗",
+     "zone": "暴风城"
+    },
+    {
+     "npc_id": 3364,
+     "name": "博亚",
+     "zone": "奥格瑞玛"
+    }
+   ]
+  }
+ }
+}

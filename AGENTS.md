@@ -23,7 +23,7 @@
 | --- | --- |
 | `dsh-web/addon/DSHChat/` | 游戏插件（dsh web 启动时由 `dsh-web/lib/setup.mjs` 自动装进游戏）。`Core.lua` 频道、提问、物品链接、回答渲染、地图位置（`{{loc:…}}`/`{{npc:…}}` → 游戏自带地图标记的 worldmap 链接）、采购清单（回答里的 `{{buy:…}}` 先列在聊天框，玩家点 [加进 Auctionator]、`/dshc buy`、菜单或在问题里要求后才进 Auctionator 购物清单「DSH 采购」）、`/dshc`（子命令表 `Core.commands`）；`Voice.lua` 上行；`Font.lua`/`Mailbox.lua` 回信；`QuickMenu.lua` 快捷提问按钮和菜单（Blizzard_Menu）；`Bindings.xml` 两个快捷键（客户端自动加载，不写进 TOC） |
 | `dsh-web/voice/` | 静音语音引擎 C# 源码和安装脚本（设置页的“安装静音语音”跑它：弹 UAC，再完整重启游戏） |
-| `dsh-web/` | dsh web 组合包 `@local/dsh-wow-bridge`：`index.js` 桥接服务和设置页接口（`/api/wow-dsh-bridge/*`，DSH 的 connection 精确路由，只有本机主人能访问），`client.js` 设置页（手写的 lazy-CJS 工厂格式，React 用 `require('react').createElement`，挂在插件页的 `plugins.bundle.config`），`cordis.patch.yml` 插件配置 + 预设 `wowf`（人设在 `prefix`），`wowf-tool-policy.js` 工具白名单，`wowf-market-tools.js` + `wowauctions.js` 行情/制作利润工具 |
+| `dsh-web/` | dsh web 组合包 `@local/dsh-wow-bridge`：`index.js` 桥接服务和设置页接口（`/api/wow-dsh-bridge/*`，DSH 的 connection 精确路由，只有本机主人能访问），`client.js` 设置页（手写的 lazy-CJS 工厂格式，React 用 `require('react').createElement`，挂在插件页的 `plugins.bundle.config`），`cordis.patch.yml` 插件配置 + 预设 `wowf`（人设在 `prefix`），`wowf-tool-policy.js` 工具白名单，`wowf-market-tools.js` + `wowauctions.js` 行情/制作利润工具，`vendors.js` 查商人卖不卖 |
 | `dsh-web/lib/` | 共用代码（管道、游戏进程跟踪、字体回信、提问格式 `answer.mjs` 的 `prompt()`、`setup.mjs` 找游戏目录 + 装游戏插件）。组合包必须自成一体：不准从 `dsh-web/` 外面 import 或读文件 |
 | `bridge/bridge.mjs` | 不依赖 dsh web 的独立桥接（备用；每题启动一次 headless profile `wowf`） |
 | `test/` | `e2e_offline.py`（插件 Lua + 独立桥接 + 模拟客户端）、`web_plugin_offline.mjs`（插件 + 假 DSH 宿主 + 设置页接口）、`setup_offline.mjs`、`wowf_policy_offline.mjs`、`market_offline.mjs`、`web_live_drive.mjs` |
@@ -54,6 +54,11 @@
    `fetchMaxOutputChars` 也是转换前原始 HTML 的截断长度：wowauctions 的价格在 HTML 第 2 万字符左右，不能调回 16000 以下。
    行情工具解析页面里的 `__NEXT_DATA__` JSON（不是可见文字）；网站改版后先看 `test/market_offline.mjs` 是否还过。
    wowauctions 的 `api.wowauctions.net` 没有公开文档，不准用；同一页面 30 分钟内只读一次。
+   **商人卖不卖不准看 wowauctions**：它的 `available_from_vendor` 对每件物品都是 true（符文布、瑟银锭也是），专业页材料的 `price_source` 全是 ah，
+   0.5.2 以前就因此把拍卖行材料说成商人有卖。现在由 `vendors.js` 调无限图鉴 `item_usage` 的 `temporary_vendors`（玩家在无限服记下的商人货单，临时数据，
+   回答要注明无限图鉴和“临时”）：通用商品（`common` 或 5 个以上商人）才算“商人有卖”、不进采购清单；一两个商人的（常常限量或要声望，
+   如冬泉谷维尔的魔纹布）标“少数商人有”，照常算拍卖行材料。查不到时只认 `VENDOR_REAGENTS` 这张备用表，其余说“没查到”，不准猜。
+   结果缓存 12 小时（失败 2 分钟），最多 4 个并发；人设里也写了“卖店价不代表商人卖它”。
 4. 改了 `dsh-web/` 里的代码后要**重启 dsh web**（热重载不看这些源文件）。改人设后再在游戏里 `/dshc reset`，
    已有会话保留旧人设。
    **token 用量**（实测 2026-11-21：每题约 13 万 token，未缓存 4.3k，输出 660 其中约八成是思考）：插件给游戏会话选
