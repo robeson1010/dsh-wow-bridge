@@ -114,7 +114,11 @@ def make_lua(client):
       local function noop() end
       local FrameMT = {}
       FrameMT.__index = function(t, k) return rawget(FrameMT, k) or (type(k) == "string" and k:match("^%u") and noop) or nil end   -- any other frame method (Capitalized): no-op; fields stay nil
-      for _, name in ipairs({"SetIgnoreParentScale","SetSize","SetPoint","SetAlpha","SetScale","RegisterEvent"}) do FrameMT[name] = noop end
+      for _, name in ipairs({"SetIgnoreParentScale","SetSize","SetPoint","SetAlpha","SetScale"}) do FrameMT[name] = noop end
+      function FrameMT:RegisterEvent(event)
+        self.events = self.events or {}
+        self.events[event] = true
+      end
       function FrameMT:SetText(t) self.text = t end
       function FrameMT:GetText() return self.text end
       function FrameMT:SetFocus() self.focused = true end
@@ -149,6 +153,7 @@ def make_lua(client):
       GameFontNormal = {}
       function GetPhysicalScreenSize() return 1920, 1080 end
       function GetTime() return PY.now() end
+      function InCombatLockdown() return INCOMBAT == true end
       function time() return math.floor(os.time()) end
       TIMERS = {}
       C_Timer = { After = function(_, fn) TIMERS[#TIMERS + 1] = fn end }
@@ -213,7 +218,7 @@ def make_lua(client):
         GetManager = function() return { OpenMenu = function(_, owner, root) LAST_MENU = root return MenuObj() end } end,
       }
       function CreateAnchor() return {} end
-      -- Blizzard's chat box: the addon must never open, fill or retype it (that taints the player's next message)
+      -- Record native chat calls so only an explicit channel selection may open it.
       CHAT_TOUCHED = {}
       ChatFrameUtil = setmetatable({}, { __index = function(_, k) return function() table.insert(CHAT_TOUCHED, k) end end })
       ChatFrame_OpenChat = function() table.insert(CHAT_TOUCHED, "ChatFrame_OpenChat") end
@@ -388,6 +393,29 @@ def main():
         assert '|Hitem:7866' in line and '||H' not in line, f'an item token in the answer must become the link: {line!r}'
         print('OK  {{item:7866|...}} in the answer became a clickable link:', line)
 
+        h.client.chat.clear()
+        h.lua.execute(b'''
+          local getItemInfo = C_Item.GetItemInfo
+          local loaded = false
+          function C_Item.GetItemInfo(id, ...)
+            if id ~= 6666 then return getItemInfo(id, ...) end
+            if loaded then return "Elixir of Strength", "|Hitem:6666|h[Elixir of Strength]|h" end
+          end
+          Item = { CreateFromItemID = function(_, id)
+            assert(id == 6666)
+            return { ContinueOnItemLoad = function(_, cb)
+              C_Timer.After(0, function() loaded = true cb() end)
+            end }
+          end }
+        ''')
+        h.type_in_channel('{{item:6666|Elixir of Strength}} 利润链接加载测试')
+        status = h.wait_chat('回声测试')
+        assert '|Hitem:6666|h[Elixir of Strength]|h' in status, status
+        h.tick(0.1)
+        assert sum('回声测试' in line for line in h.client.chat) == 1
+        h.g.Item = None
+        print('OK  uncached answer items load before their clickable links are printed')
+
         # 6. a token with the wrong name for its id stays plain text; an unknown id asks the client to load it
         render = h.ns.Core.RenderLine
         out = render('试试 {{item:7866|Wrong Name}} 和 {{item:999|Unknown}} 还有 a|b'.encode('utf-8')).decode('utf-8')
@@ -446,33 +474,75 @@ def main():
         top = items(None)
         labels = [(x.kind.decode(), text(x)) for x in top]
         assert labels[0] == ('title', 'DSH 快捷提问'), labels
-        assert labels[1:5] == [('button', '打字提问：在聊天框打 /dsh'), ('button', '帮我翻译（中文↔英文）'), ('button', '开新对话（/dshc reset）'), ('divider', '')], labels
-        assert top[1].enabled is False and top[1].cb is None, 'typing a question: a hint only, no popup'
-        assert [l[1] for l in labels[5:8]] == ['我现在该做什么？', '附近有什么任务？', '这里适合刷什么？'], labels
-        market = top[8]
+        assert labels[1:4] == [('button', '打字提问'), ('button', '开新对话（/dshc reset）'), ('divider', '')], labels
+        assert all('帮我翻译' not in label for _, label in labels), labels
+        assert [l[1] for l in labels[4:7]] == ['我现在该做什么？', '附近有什么任务？', '这里适合刷什么？'], labels
+        market = top[7]
         assert text(market) == '行情：鼠标指着的物品' and market.enabled is False, 'no item hovered: greyed out'
-        craft = top[9]
+        craft = top[8]
         sub = [(x.kind.decode(), text(x)) for x in items(craft)]
         assert sub[0] == ('button', 'Tailoring  150/300') and sub[1][0] == 'divider', sub   # own profession first, child id 2948 -> 197
         assert '裁缝' not in [s[1] for s in sub[2:]] and len(sub) == 2 + 8, sub           # the other 8, herbalism skipped
-        assert text(top[11]).startswith('自定义问题') and top[11].enabled is False and len(top) == 12, labels
-        # 帮我翻译: DSHChat's own input box opens (focused, empty); Blizzard's chat box is not touched
-        top[2].cb()
-        box_eb = [f for f in g.FRAMES.values() if f.kind == b'EditBox'][0]
-        box = box_eb.parent
-        assert box.shown is True and box_eb.focused is True and box_eb.text == b'' and box.title.text.decode().startswith('DSH 翻译'), box.title.text
-        box_eb.scripts[b'OnEscapePressed'](box_eb)
-        assert box.shown is False
-        assert len(g.CHAT_TOUCHED) == 0, list(g.CHAT_TOUCHED.values())
-        # a fixed question; a double click sends once
+        assert text(top[10]).startswith('自定义问题') and top[10].enabled is False and len(top) == 11, labels
+        # A channel selection opens native chat with the slash command and does not send a request.
+        channel_items = items(top[1])
+        assert [text(x) for x in channel_items] == ['/DSH · DSH 提问', '/S · 说话', '/P · 小队', '/G · 公会']
+        h.lua.execute(b'''
+          local types = { ["/DSH "] = "DSH", ["/S "] = "SAY", ["/P "] = "PARTY", ["/G "] = "GUILD" }
+          local activeBox
+          function ChatFrameUtil.GetActiveWindow() return activeBox end
+          function ChatFrameUtil.OpenChat(text)
+            table.insert(CHAT_TOUCHED, text)
+            activeBox = {
+              GetText = function() return CHAT_DRAFT or "" end,
+              GetChatType = function() return types[text] end,
+            }
+            return activeBox
+          end
+        ''')
         h.client.spoken.clear()
+        g.INCOMBAT = True
+        channel_items[0].cb()  # the menu was already open when combat began
+        assert len(g.CHAT_TOUCHED) == 0 and g.DSHChatDB.quick.lastChatSwitch is None
+        assert '战斗中暂停自动切频道' in h.client.chat[-1]
+        open_menu()
+        combat_menu = items(None)
+        assert all(item.enabled is False for item in items(combat_menu[1]))
+        assert combat_menu[8].enabled is True, 'craft menu is still available in combat'
+        g.INCOMBAT = None
+        open_menu()
+        channel_items = items(items(None)[1])
+        for item, command, chat_type in zip(channel_items, ('/DSH', '/S', '/P', '/G'), ('DSH', 'SAY', 'PARTY', 'GUILD')):
+            assert item.enabled is not False
+            item.cb()
+            h.tick(0.3)
+            assert g.CHAT_TOUCHED[len(g.CHAT_TOUCHED)].decode() == command + ' '
+            assert g.DSHChatDB.quick.lastChatSwitch.chatType.decode() == chat_type
+        g.CHAT_DRAFT = b'an unsent message'
+        channel_items[0].cb()
+        assert len(g.CHAT_TOUCHED) == 4 and g.CHAT_DRAFT == b'an unsent message'
+        g.CHAT_DRAFT = None
+        watch = next(f for f in g.FRAMES.values() if f.events and f.events[b'ADDON_ACTION_BLOCKED'])
+        on_event = watch.scripts[b'OnEvent']
+        on_event(watch, b'ADDON_ACTION_BLOCKED', b'AnotherAddon', b'UnrelatedFunction()')
+        assert g.DSHChatDB.quick.lastChatSwitch.event is None
+        h.client.clock += 1.5
+        on_event(watch, b'ADDON_ACTION_BLOCKED', b'DSHChat', b'C_ChatInfo.SendChatMessage()')
+        g.SlashCmdList[b'DSHC'](b'chatdiag')
+        assert 'ADDON_ACTION_BLOCKED' in h.client.chat[-1] and 'C_ChatInfo.SendChatMessage' in h.client.chat[-1]
+        assert g.DSHChatDB.quick.lastChatSwitch.delay >= 1.5
+        channel_items[2].cb()
+        assert len(g.CHAT_TOUCHED) == 4 and '/P' in h.client.chat[-1]
+        g.CHAT_TOUCHED = h.lua.table()
+        assert not h.client.spoken and len(g.CHAT_TOUCHED) == 0, list(g.CHAT_TOUCHED.values())
+        # a fixed question; a double click sends once
         btn = [f for f in g.FRAMES.values() if f.scripts[b'OnClick']][0]
         status = btn.status
         h.client.clock += 151               # earlier checks' unanswered questions time out first
         h.driver.scripts[b'OnUpdate'](h.driver, 0.05)
         status.scripts[b'OnUpdate'](status)
         assert status.label.shown is False, 'nothing waiting: no status'
-        top[5].cb(); top[5].cb()
+        top[4].cb(); top[4].cb()
         assert len(h.client.spoken) == 1 and sent_q()['q'] == '我现在该做什么？'
         # "正在回复… N 秒" beside the button while it waits
         h.client.clock += 6.2
@@ -493,14 +563,14 @@ def main():
         g.TT_FILLING = False
         g.HOVER_LINK = None
         open_menu()
-        m = items(None)[8]
+        m = items(None)[7]
         assert text(m) == '行情：[Empty Thaumaturgy Vessel]' and m.enabled is True, text(m)
         h.client.clock += 2
         m.cb()
         assert '[Empty Thaumaturgy Vessel]' in sent_q()['q']
         h.client.clock += 31                # older than 30 s: no longer offered
         open_menu()
-        assert items(None)[8].enabled is False
+        assert items(None)[7].enabled is False
         # nothing hovered: the key says so
         h.client.chat.clear()
         g.DSHChat_AskHoveredMarket()
@@ -511,7 +581,7 @@ def main():
         g.SlashCmdList[b'DSHC'](b'add')
         assert any('用法：/dshc add' in l for l in h.client.chat)
         open_menu()
-        custom = items(None)[11]
+        custom = items(None)[10]
         assert text(custom) == '[Empty Thaumaturgy Vesse…' and custom.enabled is not False, text(custom)   # 24 chars; tooltip has it all
         h.client.clock += 2
         custom.cb()
@@ -546,7 +616,7 @@ def main():
         # 开新对话
         open_menu()
         h.client.clock += 2
-        items(None)[3].cb()
+        items(None)[2].cb()
         assert sent_q()['type'] == 'reset'
         # all time out (150 s): the status goes away
         h.client.clock += 151
@@ -715,7 +785,6 @@ def main():
           C_Map.CanSetUserWaypointOnMap = function(id) return id ~= 1415 end
           C_Map.SetUserWaypoint = function(p) p.btnRegistered = BTN_REG WAYPOINTS[#WAYPOINTS + 1] = p return true end
           UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { uiMapID = m, x = x, y = y } end }
-          function InCombatLockdown() return INCOMBAT == true end
           BTN_REG = true
           WorldMapFrame = { IsShown = function() return MAP_OPEN == true end, WorldMapTrackingPinButton = {
             IsEventRegistered = function(self, ev) return ev == "USER_WAYPOINT_UPDATED" and BTN_REG end,
@@ -845,17 +914,10 @@ def main():
         assert box.shown is False and len(h.client.spoken) == spoken_before, 'Enter in the copy box sends nothing'
         link_cb[1](link_cb[2], b'addon:DSHChat:tr:99', b'[x]', b'LeftButton')
         h.wait_chat('这条译文太旧了')
-        # the menu's translate box: Enter translates and the box stays open for the next line
-        h.g.DSHChat_ToggleQuickMenu()
-        [x for x in h.g.LAST_MENU.entries.values() if x.text == '帮我翻译（中文↔英文）'.encode('utf-8')][0].cb()
-        box_eb.text = 'how much is this'.encode('utf-8')
-        box_eb.scripts[b'OnEnterPressed'](box_eb)
-        h.tick(0.1)
-        assert box.shown is True and box_eb.text == b'', 'the translate box stays open, emptied'
+        h.type_in_channel('how much is this', b'DSHT')
         h.wait_chat('译文测试：how much is this')
-        box_eb.scripts[b'OnEscapePressed'](box_eb)
         assert len(h.g.CHAT_TOUCHED) == 0, list(h.g.CHAT_TOUCHED.values())
-        print('OK  translation: /dsht channel and the menu box, [复制译文] shows it selected in our own box, Blizzard chat box untouched')
+        print('OK  translation: /dsht channel and [复制译文] use the local bridge, Blizzard chat box untouched')
     except AssertionError as e:
         ok = False
         print('FAIL', e)

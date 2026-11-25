@@ -1,11 +1,11 @@
 -- Quick questions: a draggable "DSH" button that opens a menu of common questions, two key bindings (open the menu;
 -- ask the market question about the item under the mouse) and the player's own questions (/dshc add|del|list).
--- The menu also opens DSHChat's own translation box, starts a new conversation and (once an answer listed
--- materials) adds that shopping list to Auctionator; while a question waits for its answer the button shows
+-- The menu also opens a selected chat channel, starts a new conversation and (once an answer listed materials) adds that
+-- shopping list to Auctionator; while a question waits for its answer the button shows
 -- "正在回复… N 秒" beside it.
 -- Blizzard_Menu (MenuUtil / Menu.GetManager) is in this client and calls the generator and the callbacks through
--- securecallfunction; nothing here touches protected frames or APIs (Core:Ask only prints and speaks).
-local _, ns = ...
+-- securecallfunction. The channel picker has a diagnostic for the native chat path.
+local ADDON, ns = ...
 local Core = ns.Core
 
 local QuickMenu = {}
@@ -16,6 +16,7 @@ BINDING_NAME_DSHCHAT_MENU = "打开 DSH 快捷提问菜单"
 BINDING_NAME_DSHCHAT_MARKET = "问行情：鼠标指着的物品"
 
 local FIXED = { "我现在该做什么？", "附近有什么任务？", "这里适合刷什么？" }
+local TYPING_CHANNELS = { { "/DSH", "DSH 提问" }, { "/S", "说话" }, { "/P", "小队" }, { "/G", "公会" } }
 -- crafting professions with a wowauctions profit page: skill line id -> name the market tool understands
 local CRAFT = { { 171, "炼金" }, { 164, "锻造" }, { 185, "烹饪" }, { 333, "附魔" }, { 202, "工程" }, { 129, "急救" },
 	{ 165, "制皮" }, { 186, "采矿" }, { 197, "裁缝" } }
@@ -26,14 +27,16 @@ local CHILD = { [2937] = 171, [2938] = 164, [2939] = 185, [2940] = 333, [2941] =
 local MAX_CUSTOM = 30
 local ITEM_FRESH = 30              -- seconds a hovered item stays "the item" for the menu
 local LABEL_CHARS = 24
+local CHAT_WATCH_SECS = 60
 
 local db                           -- DSHChatDB.quick
 local button, openMenu
 local lastItem                     -- { link, t }: the last item a tooltip showed
 local lastSent, lastSentAt
 local hooked                       -- the tooltip post-call is registered once
+local chatWatch, chatStarted, chatBlocked
 
-local function Usable(v) return type(v) == "string" and v ~= "" and not (issecretvalue and issecretvalue(v)) end
+local function Usable(v) return type(v) == "string" and not (issecretvalue and issecretvalue(v)) and v ~= "" end
 
 local function Send(text)
 	local now = GetTime()
@@ -126,27 +129,71 @@ local function Truncate(s, maxChars)
 end
 QuickMenu.Label = function(q) return Truncate(Plain(q), LABEL_CHARS) end
 
--- ---- the menu ----
--- Typing a question: only in the chat box with /dsh, typed by the player. The menu cannot switch the chat box to the
--- DSH channel: opening Blizzard's chat box or setting its chat type from addon code taints it and blocks the player's
--- next real message (see Core.lua, Box), and a popup box of our own was clumsy (removed in 0.5.4). The entry is a hint.
--- A translation still uses DSHChat's own box (Core.OpenTranslate).
-local function OpenTranslate() Core.OpenTranslate() end
-QuickMenu.OpenTranslate = OpenTranslate
+local function ManualChannel(command)
+	Core.Say(("请在聊天框手动输入 %s 加空格。"):format(command))
+end
 
+local function WatchChatBlock(_, event, addon, action)
+	local trial = db.lastChatSwitch
+	if not (chatStarted and trial) or trial.event then return end
+	local delay = GetTime() - chatStarted
+	if delay > CHAT_WATCH_SECS then return end
+	addon = Usable(addon) and addon or "未知"
+	action = Usable(action) and action or "未知"
+	if addon ~= ADDON and not action:find("SendChatMessage", 1, true)
+		and not action:find("SetPreferredGamepadInteractTarget", 1, true) then return end
+	trial.event, trial.addon, trial.action, trial.delay = event, addon, action, delay
+	chatBlocked = true
+	C_Timer.After(0, function()
+		Core.Say("切频道后捕获到受限操作，已暂停自动切换。用 /dshc chatdiag 查看记录。")
+	end)
+end
+
+local function OpenChannel(command)
+	if InCombatLockdown and InCombatLockdown() then return Core.Say("战斗中暂停自动切频道。") end
+	local util = ChatFrameUtil
+	if chatBlocked or not (util and util.OpenChat and util.GetActiveWindow) then return ManualChannel(command) end
+	local active = util.GetActiveWindow()
+	if active then
+		local draft = active:GetText()
+		if (issecretvalue and issecretvalue(draft)) or (draft and draft ~= "") then return ManualChannel(command) end
+	end
+	if not chatWatch then
+		chatWatch = CreateFrame("Frame")
+		chatWatch:RegisterEvent("ADDON_ACTION_BLOCKED")
+		chatWatch:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+		chatWatch:SetScript("OnEvent", WatchChatBlock)
+	end
+	local trial = { command = command, lockdown = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown
+		and C_ChatInfo.InChatMessagingLockdown() or false }
+	db.lastChatSwitch, chatStarted = trial, GetTime()
+	local ok, box = pcall(util.OpenChat, command .. " ")
+	if not ok then
+		trial.error = Usable(box) and box:sub(1, 240) or "未知错误"
+		chatBlocked = true
+		return ManualChannel(command)
+	end
+	-- OpenChat defers applying the text to the next OnUpdate on the normal edit box.
+	C_Timer.After(0.2, function()
+		if db.lastChatSwitch ~= trial or chatBlocked then return end
+		local chatType = box and box == util.GetActiveWindow() and box:GetChatType()
+		if Usable(chatType) then trial.chatType = chatType end
+	end)
+end
+
+-- ---- the menu ----
 local function Generate(_, root)
 	root:CreateTitle("DSH 快捷提问")
-	local ask = root:CreateButton("打字提问：在聊天框打 /dsh")
-	ask:SetEnabled(false)
-	ask:SetTooltip(function(tt)
-		GameTooltip_SetTitle(tt, "打字提问")
-		GameTooltip_AddNormalLine(tt, "在聊天框打 /dsh 加空格，聊天框就切到 DSH 频道，打问题回车（可以 Shift 点物品链接）。之后按回车聊天框还停在 DSH 频道，像 /s 一样；切回别的频道打 /s、/g 之类。")
-	end)
-	local tr = root:CreateButton("帮我翻译（中文↔英文）", OpenTranslate)
-	tr:SetTooltip(function(tt)
-		GameTooltip_SetTitle(tt, "帮我翻译")
-		GameTooltip_AddNormalLine(tt, "弹出输入框：打中文翻成英文，打英文翻成中文。点译文后面的 [复制译文]，Ctrl+C 复制，再到聊天框 Ctrl+V 发出去。也可以在聊天框打 /dsht 文字。")
-	end)
+	local ask = root:CreateButton("打字提问")
+	local inCombat = InCombatLockdown and InCombatLockdown()
+	for _, channel in ipairs(TYPING_CHANNELS) do
+		local command, label = channel[1], channel[2]
+		local item = ask:CreateButton(command .. " · " .. label, function() OpenChannel(command) end)
+		if inCombat then
+			item:SetEnabled(false)
+			item:SetTooltip(function(tt) GameTooltip_SetTitle(tt, "战斗中暂停自动切频道") end)
+		end
+	end
 	root:CreateButton("开新对话（/dshc reset）", function() SlashCmdList.DSHC("reset") end)
 	-- the latest shopping list from an answer: added to Auctionator only when picked here (or confirmed in chat)
 	local list = Core.LastBuy and Core.LastBuy()
@@ -379,7 +426,21 @@ function QuickMenu.Init()
 	Place()
 end
 
--- ---- /dshc add | del | list | button ----
+-- ---- /dshc chatdiag | add | del | list | button ----
+Core.commands.chatdiag = function()
+	local trial = db and db.lastChatSwitch
+	if not trial then return Core.Say("还没有自动切频道的记录。") end
+	Core.Say(("最近切换 %s · 检测到的频道 %s · 聊天 API 限制 %s"):format(trial.command,
+		Plain(trial.chatType or "未确认"), trial.lockdown and "已开启" or "未开启"))
+	if trial.error then Core.Say("打开聊天框出错：" .. Plain(trial.error)) end
+	if trial.event then
+		Core.Say(("切换后 %.2f 秒捕获 %s · 插件 %s · 函数 %s"):format(trial.delay,
+			trial.event, Plain(trial.addon), Plain(trial.action)))
+	elseif not trial.error then
+		Core.Say("未捕获相关的受限操作事件。")
+	end
+end
+
 Core.commands.add = function(rest)
 	local q = strtrim(rest or "")
 	if q == "" then return Core.Say("用法：/dshc add 问题（可以 Shift 点物品链接）") end

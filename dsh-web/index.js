@@ -16,7 +16,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Intake } from './lib/intake.mjs';
 import { GameWatch, wowPid } from './lib/game.mjs';
-import { prompt as buildPrompt, translatePrompt, factionOf } from './lib/answer.mjs';
+import { prompt as buildPrompt, translatePrompt, factionOf, collectCraftItems, linkCraftItems } from './lib/answer.mjs';
 import * as MB from './lib/fontmail.mjs';
 import { readAdvances } from './lib/ttf.mjs';
 import { findAddOns, addOnsOf, syncAddon, addonState, addonVersion, pickFolder, saveLocalConfig, FLAVOR } from './lib/setup.mjs';
@@ -426,6 +426,7 @@ export function apply(ctx, config) {
     const requestId = `wow-${randomUUID()}`;
     const sessionId = agent.id;
     let myTurn, answer = '', settled = false, settle;
+    const craftCalls = new Set(), craftItems = new Map();
     // token usage of this turn: summed over its model calls; prompt = the last call's full prompt size
     const usage = { steps: 0, uncached: 0, cached: 0, output: 0, prompt: 0 };
     const done = new Promise((resolve) => { settle = (v) => { if (!settled) { settled = true; resolve(v); } }; });
@@ -435,7 +436,12 @@ export function apply(ctx, config) {
     });
     safeOn(offs, 'session/event', (session, ev) => {
       if (myTurn === undefined || session?.id !== sessionId) return;
-      if (ev?.type === 'assistant/message' && ev.data?.turn === myTurn) {
+      if (ev?.data?.turn !== myTurn) return;
+      if (ev.type === 'tool/call' && ev.data.name === 'wow_craft_profit' && ev.data.callId) {
+        craftCalls.add(ev.data.callId);
+      } else if (ev.type === 'tool/result' && craftCalls.has(ev.data.message?.toolCallId) && !ev.data.message.isError) {
+        collectCraftItems(craftItems, textOf(ev.data.message));
+      } else if (ev.type === 'assistant/message') {
         const t = textOf(ev.data.message); if (t) answer = t;
         const u = ev.data.usage;
         if (u && typeof u === 'object') {
@@ -446,7 +452,7 @@ export function apply(ctx, config) {
           usage.output += n(u.outputTokens);
           usage.prompt = n(u.inputTokens) + n(u.cacheReadTokens) + n(u.cacheWriteTokens);
         }
-      } else if (ev?.type === 'turn/end' && ev.data?.turn === myTurn) settle(ev.data.reason ?? { kind: 'completed' });
+      } else if (ev.type === 'turn/end') settle(ev.data.reason ?? { kind: 'completed' });
     });
     safeOn(offs, 'agent/disposed', ({ agent: a }) => { if (a === agent) settle({ kind: 'agent-disposed' }); });
     const onLife = () => settle({ kind: 'plugin-disposed' });
@@ -461,7 +467,7 @@ export function apply(ctx, config) {
       } catch (e) { return { answer: '', reason: { kind: 'prompt-rejected', error: e?.code || e?.message } }; }
       const reason = await done;
       if (reason.kind === 'timeout') log(`超时处理：${cancelOurs(agent, requestId, myTurn)}`);
-      return { answer, reason, turn: myTurn, usage };
+      return { answer: linkCraftItems(answer, craftItems), reason, turn: myTurn, usage };
     } finally {
       clearTimeout(timer);
       life.signal.removeEventListener('abort', onLife);

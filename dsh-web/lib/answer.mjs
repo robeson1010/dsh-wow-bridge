@@ -23,6 +23,33 @@ function describe(ctx = {}) {
 
 export const linksOf = (req) => (Array.isArray(req.links) ? req.links.filter((l) => l && typeof l === 'object').slice(0, 5) : []);
 
+// WoWAuctions formats each ranked craft with its product name and ID at the start of a row.
+export function collectCraftItems(items, result) {
+  for (const [, rawName, id] of result.matchAll(/^- ([^|{}\r\n]+?)（item:(\d+)）×/gm)) {
+    const name = rawName.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const previous = items.get(key);
+    if (!items.has(key)) items.set(key, { id, name });
+    else if (previous?.id !== id) items.set(key, null);
+  }
+}
+
+export function linkCraftItems(answer, items) {
+  const names = [...items.values()].filter(Boolean).map(({ name }) => name);
+  if (!names.length) return answer;
+  const choices = names.sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const matches = new RegExp(`\\[[^\\]\\r\\n]+\\]|【[^】\\r\\n]+】|(?<![\\p{L}\\p{N}_])(?:${choices})(?![\\p{L}\\p{N}_])`, 'giu');
+  return answer.split('\n').map((line) => {
+    if (/\{\{buy:/i.test(line)) return line;
+    return line.split(/(\{\{[^{}]*\}\})/).map((part, i) => i % 2 ? part : part.replace(matches, (match) => {
+      const name = /^[\[【]/.test(match) ? match.slice(1, -1).trim() : match;
+      const item = items.get(name.toLowerCase());
+      return item ? `{{item:${item.id}|${item.name}}}` : match;
+    })).join('');
+  }).join('\n');
+}
+
 // EU / US Forever AH prices per ruleset and faction (plain pages; the part before the id is ignored by the site)
 export const priceUrl = (faction, id = '物品ID', realm = 'forever-eu/pvp-forever-eu') =>
   `https://www.wowauctions.net/auctionHouse/${realm}/${faction === 'Alliance' ? 'alliance' : 'horde'}/x-${id}`;

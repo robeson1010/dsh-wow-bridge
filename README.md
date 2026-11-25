@@ -1,7 +1,9 @@
-# DSH Bridge（0.5.4）
+# DSHChat · WoW Forever Addon
 
 在《魔兽世界：无限》聊天框里加一个只在本地的 **[DSH] 频道**：在里面提问，由你电脑上的 DeepSeek Harness（DSH）回答，回答显示在聊天框里。
 还能翻译（中文 ↔ 英文），查拍卖行行情和制作利润，在地图上标位置，把要买的材料放进 Auctionator 购物清单。
+
+DSHChat is a World of Warcraft: Forever addon for Windows that connects in-game chat to DeepSeek Harness. It supports Auction House prices, crafting profit rankings, clickable item links, Auctionator shopping lists, map pins, and Chinese–English translation. The addon requires the DSH Web bridge and the DSH Bridge voice engine.
 
 ```
 游戏里 /dsh 提问（可以 Shift 点物品）
@@ -18,7 +20,7 @@
 
 需要：Windows、《魔兽世界：无限》、[DeepSeek Harness](https://www.npmjs.com/package/@deepseek-ai/dsh)（`dsh web`，配好 DeepSeek 账号）、Git。
 
-1. **装 DSH 插件**：打开 `dsh web` → 侧栏 **插件** → 安装，填本仓库最新 Release 说明里的安装地址
+1. **装 DSH 插件**：打开 `dsh web` → 侧栏 **插件** → 安装，填[最新 GitHub Release](https://github.com/robeson1010/dsh-wow-bridge/releases/latest)里的安装地址
    （形如 `git+https://github.com/…/dsh-wow-bridge.git#<提交号>&path:/dsh-web`，要带完整提交号，以后才能自动升级）。
 2. **在设置页里设置**：DSH 的 **设置 › 魔兽世界**（和“通用 / 模型 / 插件”同一级；插件页里本插件的详情也有同一页）：
    - **服务器和阵营**：欧服、美服或国服，以及规则集（PvP / PvE / RP …）；阵营选“按角色自动”、部落或联盟。
@@ -39,12 +41,14 @@
   - `/dsh` 进入 DSH 频道（像 `/s` 一样会保持），直接打字提问；可以 Shift 点物品。
   - `/dshc test` 测试链路；`/dshc reset`（或在频道里打“新对话”）开新对话；`/dshc status` 看状态。
   - 宏里用 `/dshq 问题`。
-  - **翻译**：`/dsht` 进入 **[DSH 翻译]** 频道，也会保持；或者在 DSH 按钮菜单里点“帮我翻译”，弹出翻译输入框。打中文翻成英文，打英文翻成中文。
+  - **翻译**：`/dsht` 进入 **[DSH 翻译]** 频道，也会保持。打中文翻成英文，打英文翻成中文。
     译文后面有 **[复制译文]**：点了弹出译文（已选中），Ctrl+C 复制，到聊天框 Ctrl+V，按回车发出去。
-    插件不会替你打开或填写游戏的聊天框：那样会让你下一句话被游戏当成插件发的而拦下（“DSHChat has been blocked…”）。
+    复制译文用的是 DSH 自己的窗口，以免设置原生聊天框触发游戏的受限操作拦截。
     翻译用每个角色单独的一个对话，不会占用 DSH 频道的上下文；在翻译频道里打“新对话”也只是翻译这三个字。
   - **快捷提问**：点屏幕上的 **DSH** 按钮（按住可拖动）打开菜单，点一下就发出去：
-    - 最上面：**打字提问**（只是提示：在聊天框打 `/dsh` 就切到 DSH 频道，之后回车直接问）、**帮我翻译**、**开新对话**（等于 `/dshc reset`）。
+    - **打字提问**：选 `/DSH`（DSH 提问）、`/S`（说话）、`/P`（小队）或 `/G`（公会），打开游戏聊天框并填入对应命令。输入正文后由玩家按回车提交。战斗中暂停自动切换，脱战后重新打开菜单即可使用。
+    - `/dshc chatdiag` 显示最近一次自动切换的目标、实际检测到的频道、聊天限制和切换后 60 秒内捕获的受限操作。发生拦截后，本次界面会话内改为显示手动输入提示。
+    - **开新对话**：等于 `/dshc reset`。
     - 固定问题：我现在该做什么？/ 附近有什么任务？/ 这里适合刷什么？
     - **行情**：鼠标指着的物品（30 秒内看过的也算）现在多少钱、适合买还是卖。
     - **制作利润**：选专业（你自己的专业排在最前面），问现在做什么拿去拍卖行卖最赚钱。

@@ -22,7 +22,7 @@ ChatTypeInfo[KEY] = { sticky = 1, flashTab = false, flashTabOnGeneral = false, r
 _G["SLASH_" .. KEY .. "1"] = "/dsh"
 _G["CHAT_" .. KEY .. "_SEND"] = "[DSH]: "
 
--- The translation chat type: "/dsht" (or the quick menu's 帮我翻译). Chinese is translated to English, English (or
+-- The translation chat type: "/dsht". Chinese is translated to English, English (or
 -- anything else) to Chinese. Also sticky, so the player can keep translating.
 local KEY_T = "DSHT"
 ChatTypeInfo[KEY_T] = { sticky = 1, flashTab = false, flashTabOnGeneral = false, r = R, g = G, b = B }
@@ -49,8 +49,8 @@ local function StripCodes(s)
 end
 Core.StripCodes = StripCodes
 
--- ---------- a small box of our own: typing a question / a translation, and copying a translation ----------
--- The addon never opens, fills or retypes Blizzard's chat box. Its chat type and whisper/channel targets are frame
+-- ---------- a small box of our own for copying a translation ----------
+-- The translation copy box does not open, fill or retype Blizzard's chat box. Its chat type and targets are frame
 -- attributes, and the chat functions keep global state: written from addon code they are tainted, the player's next
 -- real message reads them, and C_ChatInfo.SendChatMessage (restricted in this client) is then blocked with "DSHChat has
 -- been blocked from an action only available to the Blizzard UI" - for every later message too, because the tainted
@@ -90,16 +90,8 @@ local function Box()
 	eb:SetAutoFocus(false)
 	eb:SetMaxLetters(0)   -- no limit: a long translation is copied whole
 	eb:SetScript("OnEscapePressed", function() f:Hide() end)
-	eb:SetScript("OnEnterPressed", function(self)
-		local onEnter = f.onEnter
-		if not onEnter then return f:Hide() end
-		local text = strtrim(self:GetText() or "")
-		if text == "" then return f:Hide() end
-		self:SetText("")
-		if not f.keepOpen then f:Hide() end
-		C_Timer.After(0, function() onEnter(text) end)
-	end)
-	-- copy mode: the text stays as it was (a stray key would otherwise change what gets copied)
+	eb:SetScript("OnEnterPressed", function() f:Hide() end)
+	-- A stray key should not change what gets copied.
 	eb:SetScript("OnTextChanged", function(self, userInput)
 		if userInput and f.copyText and self:GetText() ~= f.copyText then
 			self:SetText(f.copyText)
@@ -112,26 +104,16 @@ local function Box()
 	return f
 end
 
-local function OpenBox(title, hint, text, onEnter, keepOpen)
-	local f = Box()
-	f.title:SetText(title)
-	f.hint:SetText(hint)
-	f.onEnter, f.keepOpen, f.copyText = onEnter, keepOpen, nil
-	f.eb:SetText(text or "")
-	if text then f.copyText = text end
-	f:Show()
-	f.eb:SetFocus()
-	if text then f.eb:HighlightText() else f.eb:SetCursorPosition(0) end
-end
-
--- the quick menu's 帮我翻译 (questions are typed in the chat box with /dsh: no box of ours)
-function Core.OpenTranslate()
-	OpenBox("DSH 翻译（中文 → 英文，英文 → 中文）", "回车翻译，可以接着打下一句；Esc 关闭", nil,
-		function(text) Core:Translate(text) end, true)
-end
 -- [复制译文]: selected, ready for Ctrl+C; the player pastes it into the chat box and sends it themself
 function Core.ShowCopy(text)
-	OpenBox("译文", "已选中：Ctrl+C 复制，到聊天框 Ctrl+V，回车发出；Esc 关闭", text, nil, false)
+	local f = Box()
+	f.title:SetText("译文")
+	f.hint:SetText("已选中：Ctrl+C 复制，到聊天框 Ctrl+V，回车发出；Esc 关闭")
+	f.copyText = text
+	f.eb:SetText(text)
+	f:Show()
+	f.eb:SetFocus()
+	f.eb:HighlightText()
 end
 
 -- An item link for {{item:ID|Name}} in an answer. An item the player linked in the question comes back as the
@@ -147,6 +129,36 @@ local function ItemToken(id, name, asked)
 		pcall(C_Item.RequestLoadItemDataByID, id)   -- not cached yet: the next answer that names it gets a link
 	end
 	return "[" .. Plain(name ~= "" and name or ("item:" .. id)) .. "]"
+end
+
+-- A newly seen item can load after the answer arrives. Give its native link a chance to load before printing.
+local function WithItemLinks(text, asked, show)
+	if not (Item and Item.CreateFromItemID) then return show() end
+	local missing, seen = {}, {}
+	for rawId in text:gmatch("{{[Ii][Tt][Ee][Mm]:(%d+)[^{}]*}}") do
+		local id = tonumber(rawId)
+		if not seen[id] and not (asked and asked[id]) then
+			seen[id] = true
+			local ok, _, link = pcall(C_Item.GetItemInfo, id)
+			if ok and type(link) ~= "string" then missing[#missing + 1] = id end
+		end
+	end
+	if #missing == 0 then return show() end
+	local left, shown = #missing, false
+	local function finish()
+		if shown then return end
+		shown = true
+		show()
+	end
+	local function loaded()
+		left = left - 1
+		if left == 0 then finish() end
+	end
+	for _, id in ipairs(missing) do
+		local ok, item = pcall(Item.CreateFromItemID, Item, id)
+		if not (ok and item and pcall(item.ContinueOnItemLoad, item, loaded)) then loaded() end
+	end
+	if not shown then C_Timer.After(1.2, finish) end
 end
 
 -- ---------- map locations: {{loc:uiMapID,x,y|Name}} and {{npc:ID|Name}} -> the game's own map pin, on a click ----------
@@ -864,22 +876,24 @@ local function OnPacket(pkt)
 			return
 		end
 		local text, buys = ExtractBuys(table.concat(all))
-		-- an answer that is only the list line is not an empty answer: the list message follows
-		local found = {}
-		if #buys == 0 or text:find("%S") then PrintAnswer(text, wasLate, e.asked, found) end
-		if AskedToMark(e.q) then
-			if #found > 0 then
-				local ok, err = pcall(MarkNow, found)
-				if not ok then Say("地图标记出错：" .. Plain(err)) end
-			else
-				Say("回答里没有能标到地图上的位置（没有坐标，或者这张地图不能标）。")
-			end
-		end
 		pending[pkt.id], late[pkt.id] = nil, nil
-		if #buys > 0 then
-			local ok, err = pcall(HandleBuy, buys[#buys], e.q)
-			if not ok then Say("采购清单处理出错：" .. Plain(err)) end
-		end
+		WithItemLinks(text, e.asked, function()
+			-- An answer containing only a shopping list has no separate text to print.
+			local found = {}
+			if #buys == 0 or text:find("%S") then PrintAnswer(text, wasLate, e.asked, found) end
+			if AskedToMark(e.q) then
+				if #found > 0 then
+					local ok, err = pcall(MarkNow, found)
+					if not ok then Say("地图标记出错：" .. Plain(err)) end
+				else
+					Say("回答里没有能标到地图上的位置（没有坐标，或者这张地图不能标）。")
+				end
+			end
+			if #buys > 0 then
+				local ok, err = pcall(HandleBuy, buys[#buys], e.q)
+				if not ok then Say("采购清单处理出错：" .. Plain(err)) end
+			end
+		end)
 	end
 	if not next(pending) then Mailbox.SetActive(false) end
 end
@@ -935,10 +949,11 @@ SlashCmdList.DSHC = function(msg)
 	else
 		Say("用法：输入 /dsh 进入 DSH 频道后直接打字提问（像 /s 一样会保持）；宏里用 /dshq 问题。")
 		Say("/dshc test 测试链路 · /dshc reset 开新对话（也可以在频道里打“新对话”） · /dshc status 状态 · /dshc voices 列出语音")
-		Say("翻译：输入 /dsht 进入 [DSH 翻译]（或 DSH 按钮菜单里的“帮我翻译”），打中文翻成英文、打英文翻成中文；点译文后面的 [复制译文]，Ctrl+C 复制，到聊天框 Ctrl+V 发出去")
+		Say("翻译：输入 /dsht 进入 [DSH 翻译]，打中文翻成英文、打英文翻成中文；点译文后面的 [复制译文]，Ctrl+C 复制，到聊天框 Ctrl+V 发出去")
 		Say("地图：回答里的 [地图标记] 链接点了才在地图上放游戏自带的标记（问题里说“标到地图”“帮我导航”“带我去”会直接标第一个）")
 		Say("采购清单：DSH 列出要买的材料后，点 [加进 Auctionator] 或打 /dshc buy，才会放进 Auctionator 购物清单「" .. BUY_LIST .. "」（问题里说“加进购物清单”也行）")
-		Say("快捷提问：点 DSH 按钮（也能翻译、开新对话；等回答时按钮旁显示“正在回复…”），或在 按键设置 › DSH 频道 绑快捷键 · /dshc add 问题 · /dshc del 编号 · /dshc list · /dshc button on|off|reset")
+		Say("快捷提问：点 DSH 按钮（“打字提问”可切频道；等回答时按钮旁显示“正在回复…”），或在 按键设置 › DSH 频道 绑快捷键 · /dshc add 问题 · /dshc del 编号 · /dshc list · /dshc button on|off|reset")
+		Say("/dshc chatdiag 查看最近一次切频道的诊断记录")
 	end
 end
 

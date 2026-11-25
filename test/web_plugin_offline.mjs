@@ -113,7 +113,14 @@ const ctx = {
         setTimeout(() => {
           if (agent.cancelled) { agent.cancelled = false; bus.emit('session/event', agent.session, { type: 'turn/end', data: { turn, reason: { kind: 'aborted' } } }); return; }
           bus.emit('session/event', agent.session, { type: 'assistant/message', data: { turn, usage: { inputTokens: 300, cacheReadTokens: 1000 * turn, outputTokens: 50 }, message: { content: [{ type: 'text', tool: 1, text: '' }] } } });
-          const text = q === '长' ? `${'很长的回答。'.repeat(70)} {{item:14047|符文布}}\n{{buy:厚符文布绷带×5|14047×10}}` : `答「${q}」：第${turn}轮，会话 ${agent.id.slice(0, 16)}`;
+          let text = q === '长' ? `${'很长的回答。'.repeat(70)} {{item:14047|符文布}}\n{{buy:厚符文布绷带×5|14047×10}}` : `答「${q}」：第${turn}轮，会话 ${agent.id.slice(0, 16)}`;
+          if (q === '炼金利润链接测试') {
+            const callId = 'craft-profit';
+            bus.emit('session/event', agent.session, { type: 'tool/call', data: { turn, callId, name: 'wow_craft_profit' } });
+            const rows = '- Elixir of Strength（item:1）×1\n- Fire Oil（item:2）×2\n- Ambiguous（item:3）×1\n- Ambiguous（item:4）×1';
+            bus.emit('session/event', agent.session, { type: 'tool/result', data: { turn, message: { toolCallId: callId, content: [{ type: 'text', text: rows }] } } });
+            text = '- 强效力量药剂 [Elixir of Strength]：利润 5 银\n- Fire Oil ×2\n- [Ambiguous]\n{{buy:Fire Oil×5|12×10}}';
+          }
           bus.emit('session/event', agent.session, { type: 'assistant/message', data: { turn, usage: { inputTokens: 500, cacheReadTokens: 1000 * turn, outputTokens: 100 }, message: { content: [{ type: 'text', text }] } } });
           bus.emit('session/event', agent.session, { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } });
         }, answerDelay);
@@ -295,13 +302,19 @@ const sWs = await waitSlot(17);
 check(sWs?.text.includes('第1轮') && calls.where.workspaceId === 'ws-wow' && wsCalls.create === 0, `(m) the next session joins the picked workspace: ${JSON.stringify(calls.where)}`);
 check(firstCN.includes('服务器：国服 PvP，联盟') && firstCN.includes('"pvp-alliance"') && firstCN.includes('"faction":"Alliance"'), '(l) server line + faction override in the first message');
 
+await api('settings', { server: 'eu-pvp', faction: 'Alliance' });
+await send({ type: 'ask', q: '炼金利润链接测试' });
+const profit = await waitSlot(18);
+check(profit?.text === '- 强效力量药剂 {{item:1|Elixir of Strength}}：利润 5 银\n- {{item:2|Fire Oil}} ×2\n- [Ambiguous]\n{{buy:Fire Oil×5|12×10}}',
+  '(n) use the craft tool item IDs in the answer and keep ambiguous names and the shopping list intact');
+
 // (e) dispose in the middle of a question: no slot is written
 answerDelay = 1500;
 await send({ type: 'ask', q: '卸载时的问题' });
 await sleep(300);
 for (const d of ctx.disposers) await d();
 await sleep(2500);
-check(readSlot(18) === null, '(e) no mailbox write after the plugin was disposed');
+check(readSlot(19) === null, '(e) no mailbox write after the plugin was disposed');
 
 // (g) nothing escaped as an uncaught exception or unhandled rejection
 check(fatal.length === 0, `(g) no uncaught exceptions / unhandled rejections${fatal.length ? `: ${fatal.join(' | ')}` : ''}`);

@@ -40,6 +40,7 @@ export function tools(load, vendorsOf = async () => new Map()) {
     defineTool({
       name: 'wow_craft_profit',
       description: '查一个专业在玩家拍卖行（欧服或美服，按设置里的规则集和阵营）现在哪些配方做了卖赚钱：从销量最好的 40 个配方中排除有制作冷却的配方，返回盈利排名前 10，少于 10 个就全部返回。附成本、卖价、利润、日销量、利润趋势和材料（标了“商人有卖”的材料可向商人买）。'
+        + '列出每项产物时用 {{item:物品ID|工具里的英文原名}} 输出可点击物品链接。'
         + '专业：炼金、锻造、烹饪、附魔、工程、急救、制皮、采矿（熔炼）、裁缝（中英文都行）。数据来自 wowauctions.net。',
       parameters: {
         profession: { type: 'string', required: true, description: '专业名，例如 裁缝 / tailoring' },
