@@ -138,35 +138,51 @@ assert.deepEqual(posts, [555], 'failure cached for 2 minutes');
 await lookup([555], undefined, 3000 + 3 * 60 * 1000);
 assert.deepEqual(posts, [555, 555], 'retried after 2 minutes');
 
-// one profession (tailoring fixture: 470 recipes, 104 profitable, 40 shown)
+// one profession (tailoring fixture: 40 candidates, including the profitable Mooncloth cooldown)
 const prof = fixture('wa-tailoring.json');
-const t2 = craftProfitText(prof.props.pageProps, { faction: 'horde', url: 'U', limit: 5, now: NOW });
+const craftOpts = { faction: 'horde', url: 'U' };
+const craftRows = (text) => text.split('\n').filter((line) => line.startsWith('- '));
+const t2 = craftProfitText(prof.props.pageProps, craftOpts);
 assert.ok(t2.startsWith('Tailoring 制作利润 · 欧服 PvP 部落') && t2.includes('已扣拍卖行 5% 手续费'), t2);
-assert.ok(t2.includes('共 470 个配方，104 个赚钱；这里看的是销量最好的 40 个'), t2);
-const rows = t2.split('\n').filter((l) => l.startsWith('- '));
-assert.equal(rows.length, 5, t2);
+assert.ok(t2.includes('在销量最好的 40 个配方中筛掉有制作冷却的配方'), t2);
+const rows = craftRows(t2);
+assert.equal(rows.length, 10, t2);
+assert.match(rows[0], /^- Robe of Winter Night/);
+assert.match(rows[9], /^- Mageweave Reagent Bag/);
+assert.ok(!rows.some((line) => line.startsWith('- Mooncloth（')), t2);
+assert.ok(rows.some((line) => line.startsWith('- Mooncloth Reagent Bag（') && line.includes('Mooncloth（item:14342）×')), t2);
 assert.ok(rows.every((l) => /利润 \d/.test(l) && /item:\d+/.test(l)), t2);   // only profitable ones, with ids
 assert.ok(rows.every((l) => /材料：.+（item:\d+）×\d+/.test(l)), t2);   // material ids, for the shopping-list line
 assert.ok(t2.includes('Rune Thread（item:14341）×1（拍卖 51银16铜·商人有卖）'), t2);   // fallback list when not looked up
 assert.ok(!/Mooncloth（item:14342）[^、]*·商人/.test(t2), t2);
 assert.ok(!t2.includes('商人货单'), t2);   // no vendor lookup given: no source line
 // with the vendor lookup: what 无限图鉴 says wins over the fallback list
-const ids = shownReagentIds(prof.props.pageProps, 5);
+const ids = shownReagentIds(prof.props.pageProps);
 assert.ok(ids.includes(14341) && ids.length > 3 && new Set(ids).size === ids.length, String(ids));
 const vmap = new Map(ids.map((id) => [id, { sold: false, url: 'W' }]));
 vmap.set(14341, rt);
 vmap.set(14256, felcloth);
-const t2v = craftProfitText(prof.props.pageProps, { faction: 'horde', url: 'U', limit: 5, now: NOW, vendors: vmap });
+const t2v = craftProfitText(prof.props.pageProps, { ...craftOpts, vendors: vmap });
 assert.ok(t2v.includes('Rune Thread（item:14341）×1（拍卖 51银16铜·商人有卖 50银）'), t2v);
 assert.equal((t2v.match(/商人有卖 /g) ?? []).length, (t2v.match(/item:14341）×/g) ?? []).length, t2v);   // only Rune Thread
 assert.ok(t2v.includes('来自无限图鉴 wuxianwow.com 的商人货单'), t2v);
-assert.ok(t2v.includes('Felcloth（item:14256）×2（拍卖 80银32铜·少数商人有：维尔（冬泉谷））'), t2v);   // stays an AH material
+assert.match(t2v, /Felcloth（item:14256）×\d+（拍卖 80银32铜·少数商人有：维尔（冬泉谷））/);   // stays an AH material
 vmap.set(14341, { sold: false, url: 'W' });   // 无限图鉴 says no: the fallback list does not override it
-assert.ok(!craftProfitText(prof.props.pageProps, { faction: 'horde', url: 'U', limit: 5, now: NOW, vendors: vmap }).includes('·商人有卖'));
+assert.ok(!craftProfitText(prof.props.pageProps, { ...craftOpts, vendors: vmap }).includes('item:14341）×1（拍卖 51银16铜·商人有卖'));
 vmap.set(14341, null);                        // lookup failed for it: the fallback list answers
-assert.ok(craftProfitText(prof.props.pageProps, { faction: 'horde', url: 'U', limit: 5, now: NOW, vendors: vmap }).includes('·商人有卖）'));
+assert.ok(craftProfitText(prof.props.pageProps, { ...craftOpts, vendors: vmap }).includes('item:14341）×1（拍卖 51银16铜·商人有卖）'));
 assert.ok(t2.includes('Loom（item:') || t2.includes('Wisdom of the Timbermaw'), t2);
 assert.throws(() => craftProfitText({}, { faction: 'horde', url: 'U' }), /没有配方数据/);
+
+// The transmute and smelting can make the same item. Only the cooling-down spell is excluded.
+const smelt = { spell_id: 3308, output: { name: 'Gold Bar', item_id: 3577 }, profit: 100, reagents: [{ item_id: 2776 }] };
+const transmute = { ...smelt, spell_id: '11479', profit: 200, reagents: [{ item_id: 3575 }] };
+const small = { initial: { recipes: [transmute, smelt] } };
+assert.deepEqual(shownReagentIds(small), [2776]);
+assert.equal(craftRows(craftProfitText(small, craftOpts)).length, 1);
+const noEligibleRecipes = { initial: { recipes: [transmute, { ...smelt, profit: 0 }] } };
+assert.deepEqual(shownReagentIds(noEligibleRecipes), []);
+assert.match(craftProfitText(noEligibleRecipes, craftOpts), /没有符合条件的盈利配方/);
 
 // fetcher: cache, status errors
 let calls = 0;
@@ -187,8 +203,9 @@ const [itemTool, craftTool] = tools(async (url) => (url.includes('/professions/'
 const out1 = await itemTool.execute({ itemId: 14047 }, {});
 assert.deepEqual(asked[0], [14047]);
 assert.ok(out1.includes('商人不卖') && !out1.includes('商人有卖'), out1);
-const out2 = await craftTool.execute({ profession: '裁缝', limit: 5 }, {});
+const out2 = await craftTool.execute({ profession: '裁缝' }, {});
 assert.deepEqual(asked[1], ids);
+assert.equal(craftRows(out2).length, 10);
 assert.ok(out2.includes('·商人有卖 50银'), out2);
 const [itemTool2] = tools(async () => item.props.pageProps);   // default: nothing looked up -> unknown
 assert.ok((await itemTool2.execute({ itemId: 14047 }, {})).includes('商人卖不卖：这次没查到'));

@@ -1,7 +1,7 @@
 // wowauctions.net reader for the wowf market tools (no DSH imports, so it can be unit-tested). Online prices only, from wowauctions.net (EU / US Forever, every ruleset; the realm comes from the settings page): the pages embed their data
 // as Next.js __NEXT_DATA__ JSON, which is parsed instead of the visible text.
 //   wow_item_market(itemId, faction?)        one item: price, 30-day median/range, change, sales, verdicts
-//   wow_craft_profit(profession, faction?)   the profitable recipes among a profession's 40 best sellers
+//   wow_craft_profit(profession, faction?)   up to 10 profitable recipes without crafting cooldowns
 // Each page is fetched at most once per CACHE_MS; honest User-Agent; nothing here may throw out of a callback
 // (dsh web exits on uncaught errors) — execute() errors are caught by the tool registry and returned as isError.
 const BASE = 'https://www.wowauctions.net';
@@ -137,20 +137,27 @@ export function itemMarketText(pp, { faction, url, server = '欧服 PvP', now = 
 }
 
 // ---- one profession ----
-const capLimit = (limit) => Math.max(1, Math.min(Number.isFinite(Number(limit)) ? Number(limit) : 8, 20));
+const PROFIT_LIMIT = 10;
+// WoWAuctions supplies spell IDs but no cooldown field. Match the crafting spell so a shared output
+// or the use of a cooldown-gated reagent does not hide a recipe that can be crafted repeatedly.
+const COOLDOWN_RECIPE_SPELLS = new Set([
+  11479, 11480, 17187, 25146, 1317279,                    // Iron to Gold, Mithril to Truesilver, Arcanite, Elemental Fire, Legionite
+  17559, 17560, 17561, 17562, 17563, 17564, 17565, 17566, // Essence transmutes
+  18560, 19566,                                           // Mooncloth and using the Salt Shaker
+]);
 function profitable(ini) {
-  return ini.recipes.filter((r) => typeof r.profit === 'number' && r.profit > 0)
+  return ini.recipes.filter((r) => typeof r.profit === 'number' && r.profit > 0 && !COOLDOWN_RECIPE_SPELLS.has(Number(r.spell_id)))
     .sort((a, b) => (b.profit * Math.min(1, (b.output?.sales?.sold_per_day ?? 0) / 20)) - (a.profit * Math.min(1, (a.output?.sales?.sold_per_day ?? 0) / 20)));
 }
 // the reagent ids craftProfitText will show (to look up their vendors first)
-export function shownReagentIds(pp, limit = 8) {
+export function shownReagentIds(pp) {
   const ini = pp?.initial;
   if (!ini || !Array.isArray(ini.recipes)) return [];
-  return [...new Set(profitable(ini).slice(0, capLimit(limit)).flatMap((r) => (r.reagents ?? []).slice(0, 8).map((m) => m.item_id)).filter(Boolean))];
+  return [...new Set(profitable(ini).slice(0, PROFIT_LIMIT).flatMap((r) => (r.reagents ?? []).slice(0, 8).map((m) => m.item_id)).filter(Boolean))];
 }
 
 // vendors: Map(id -> vendors.js answer) for the shown reagents (optional)
-export function craftProfitText(pp, { faction, url, server = '欧服 PvP', limit = 8, now = Date.now(), vendors }) {
+export function craftProfitText(pp, { faction, url, server = '欧服 PvP', vendors }) {
   const ini = pp?.initial;
   if (!ini || !Array.isArray(ini.recipes)) throw new Error('wowauctions 专业页里没有配方数据（网站可能改版了）。');
   const name = pp.professionName ?? ini.name ?? '专业';
@@ -163,8 +170,8 @@ export function craftProfitText(pp, { faction, url, server = '欧服 PvP', limit
     return v?.sold ? `·商人有卖${v.unit ? ` ${coins(v.unit)}` : ''}` : '';
   };
   const lines = [`${name} 制作利润 · ${server} ${factionZh(faction)}（wowauctions.net，按近几天市场价，已扣拍卖行 ${cut}% 手续费，押金不算）`,
-    `共 ${ini.total ?? '?'} 个配方，${ini.profitable ?? '?'} 个赚钱；这里看的是销量最好的 ${shown} 个，其中赚钱的 ${good.length} 个：`];
-  for (const r of good.slice(0, capLimit(limit))) {
+    `在销量最好的 ${shown} 个配方中筛掉有制作冷却的配方，剩下 ${good.length} 个盈利配方。以下按排名列出 ${Math.min(good.length, PROFIT_LIMIT)} 个：`];
+  for (const r of good.slice(0, PROFIT_LIMIT)) {
     const out = r.output ?? {};
     const sales = out.sales ?? {};
     const tr = r.trend ?? {};
@@ -174,7 +181,7 @@ export function craftProfitText(pp, { faction, url, server = '欧服 PvP', limit
       + `日销约 ${Math.round(sales.sold_per_day ?? 0)}（${SELL_LABEL[sales.label] ?? sales.label ?? '?'}）；`
       + `趋势：${TREND_LABEL[tr.label] ?? tr.label ?? '?'}，${tr.profitable_days ?? '?'}/${tr.days_with_data ?? '?'} 天赚钱；材料：${mats || '—'}`);
   }
-  if (!good.length) lines.push('（销量最好的这些配方现在都不赚钱）');
+  if (!good.length) lines.push('这批配方里没有符合条件的盈利配方。');
   if (vendors?.size) lines.push('材料标“商人有卖”的来自无限图鉴 wuxianwow.com 的商人货单（临时数据，价格是客户端基础价）；成本按拍卖价算，商人有卖的材料实际更便宜，不进拍卖行采购清单。标“少数商人有”的只有一两个商人卖（可能限量或要声望），照常算拍卖行材料。');
   lines.push(url);
   return lines.join('\n');

@@ -3,7 +3,7 @@
 // settings page, lib/settings.mjs); see ./wowauctions.js. On a China server the tools refuse: prices come from
 // 无限图鉴's auction_house there (wowf-tool-policy.js hides these two tools then).
 //   wow_item_market(itemId, faction?)        one item: price, 30-day median/range, change, sales, verdicts
-//   wow_craft_profit(profession, faction?)   the profitable recipes among a profession's 40 best sellers
+//   wow_craft_profit(profession, faction?)   up to 10 profitable recipes without crafting cooldowns
 // Whether a vendor sells an item (or a shown reagent) is looked up in 无限图鉴's vendor lists (./vendors.js): the
 // wowauctions pages cannot tell. A failed lookup never fails the tool; the text then says it is unknown.
 // execute() errors are caught by the tool registry and returned to the model as isError.
@@ -39,12 +39,11 @@ export function tools(load, vendorsOf = async () => new Map()) {
     }),
     defineTool({
       name: 'wow_craft_profit',
-      description: '查一个专业在玩家拍卖行（欧服或美服，按设置里的规则集和阵营）现在哪些配方做了卖赚钱：在销量最好的 40 个配方里列出赚钱的，带成本、卖价、利润、日销量、利润趋势和材料（材料标了“商人有卖”的是商人能买到的）。'
+      description: '查一个专业在玩家拍卖行（欧服或美服，按设置里的规则集和阵营）现在哪些配方做了卖赚钱：从销量最好的 40 个配方中排除有制作冷却的配方，返回盈利排名前 10，少于 10 个就全部返回。附成本、卖价、利润、日销量、利润趋势和材料（标了“商人有卖”的材料可向商人买）。'
         + '专业：炼金、锻造、烹饪、附魔、工程、急救、制皮、采矿（熔炼）、裁缝（中英文都行）。数据来自 wowauctions.net。',
       parameters: {
         profession: { type: 'string', required: true, description: '专业名，例如 裁缝 / tailoring' },
         faction: { type: 'string', description: '阵营：horde（部落）或 alliance（联盟）；不传按设置' },
-        limit: { type: 'number', description: '最多列几个（默认 8，最多 20）' },
       },
       output: text,
       async execute(args, exec) {
@@ -52,10 +51,9 @@ export function tools(load, vendorsOf = async () => new Map()) {
         if (!slug) throw new Error(`不认识的专业「${args.profession}」，可用：炼金、锻造、烹饪、附魔、工程、急救、制皮、采矿、裁缝。`);
         const { realm, server, faction } = target(args.faction);
         const url = professionUrl(slug, faction, realm);
-        const limit = Number.isFinite(Number(args.limit)) ? Number(args.limit) : 8;
         const pp = await load(url, exec?.signal);
-        const vendors = await vendorsOf(shownReagentIds(pp, limit), exec?.signal);
-        return craftProfitText(pp, { faction, url, server, limit, vendors });
+        const vendors = await vendorsOf(shownReagentIds(pp), exec?.signal);
+        return craftProfitText(pp, { faction, url, server, vendors });
       },
     }),
   ];
