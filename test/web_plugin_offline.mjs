@@ -325,30 +325,58 @@ const profit = await waitSlot(18);
 check(profit?.text === '- 强效力量药剂 {{item:1|Elixir of Strength}}：利润 5 银\n- {{item:2|Fire Oil}} ×2\n- [Ambiguous]\n{{buy:Fire Oil×5|12×10}}',
   '(n) use the craft tool item IDs in the answer and keep ambiguous names and the shopping list intact');
 
-// (o) the weekly buy/sell-hours statistics: a DSH scheduled task, made only when the player switches it on
+// (o) the buy/sell report every N hours: a DSH scheduled task, made only when the player switches it on
 const conf = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'));
+const REPORT = '#买卖行情（定时）';
 let ms = (await api('status')).body.market;
-check(ms.available && ms.supported && ms.on === false && !ms.id && schCalls.create.length === 0, `(o) off by default, nothing created: ${JSON.stringify(ms)}`);
+check(ms.available && ms.supported && ms.on === false && ms.hours === 2 && ms.choices.join() === '1,2,3,4,6,8,12,24' && !ms.id && schCalls.create.length === 0,
+  `(o) off by default, every 2 hours when on, nothing created: ${JSON.stringify(ms)}`);
 check((await api('market-run', {})).status === 400, '(o) nothing to run while it is off');
+const sessionsBefore = calls.create;
 ms = (await api('settings', { marketReport: true })).body.market;
 const made = schCalls.create[0];
-check(ms.on && ms.id === 'schedule-1' && ms.status === 'active' && ms.next === '2026-11-30T07:30:00.000Z' && conf().marketReport === true && conf().marketReportId === 'schedule-1', `(o) switched on: one task, remembered: ${JSON.stringify(ms)}`);
-check(made.title === '魔兽买卖时段统计' && made.timing.kind === 'weekly' && made.timing.weekly.time === '07:30:00' && made.timing.weekly.weekdays.join() === '1' && !!made.timing.weekly.time_zone,
-  `(o) weekly, Mondays 07:30 local: ${JSON.stringify(made.timing)}`);
-check(made.target.kind === 'new' && made.target.create.agentPreset === 'wowf' && made.target.create.cwd === path.join(tmp, 'code'), `(o) a fresh wowf session each time, in the picked workspace: ${JSON.stringify(made.target)}`);
-check(made.prompt.includes('wow_flip_market') && made.prompt.includes('view 传 "times"') && made.prompt.includes('wait 传 true') && made.prompt.includes('faction 传 "alliance"') && made.prompt.includes('服务器：欧服 PvP，联盟'),
+const reportSid = sessions()[REPORT]?.sessionId;
+check(ms.on && ms.id === 'schedule-1' && ms.status === 'active' && ms.next === '2026-11-30T07:30:00.000Z' && conf().marketReport === true && conf().marketReportId === 'schedule-1',
+  `(o) switched on: one task, remembered: ${JSON.stringify(ms)}`);
+check(made.title === '魔兽买卖行情（定时）' && made.timing.kind === 'every' && made.timing.every_seconds === 7200, `(o) every 2 hours: ${JSON.stringify(made.timing)}`);
+check(calls.create === sessionsBefore + 1 && !!reportSid && made.target.kind === 'session' && made.target.sessionId === reportSid && calls.where.workspaceId === 'ws-wow'
+  && calls.presetSet.some(([id, p]) => id === reportSid && p === 'read-only'), `(o) the reports go to one read-only wowf session the plugin opened: ${JSON.stringify(made.target)}`);
+check(made.prompt.includes('wow_flip_market（不传 view）') && made.prompt.includes('faction 传 "alliance"') && made.prompt.includes('服务器：欧服 PvP，联盟') && made.prompt.includes('最值得卖'),
   `(o) the instruction names the tool call and the server: ${made.prompt}`);
 await api('settings', { marketReport: true });
-check(schCalls.create.length === 1 && schCalls.edit.length === 0, '(o) switching on twice makes no second task');
+check(schCalls.create.length === 1 && schCalls.edit.length === 0, '(o) switching on twice makes no second task and changes nothing');
+// the interval is the player's choice
+const six = await api('settings', { marketHours: 6 });
+check(six.body.market.hours === 6 && conf().marketHours === 6 && schCalls.edit.length === 1 && schCalls.edit[0].action === 'update'
+  && schCalls.edit[0].patch.timing.every_seconds === 21600 && !schCalls.edit[0].patch.prompt && !schCalls.edit[0].patch.target, `(o) every 6 hours: only the timing changes: ${JSON.stringify(schCalls.edit[0])}`);
+check((await api('settings', { marketHours: 5 })).status === 400 && (await api('settings', { marketHours: '2' })).status === 400 && conf().marketHours === 6, '(o) only the offered intervals are accepted');
 const ran = await api('market-run', {});
 check(ran.status === 200 && ran.body.ran === true && schCalls.run.join() === 'schedule-1' && ran.body.market.last === '2026-11-28T10:00:00.000Z', '(o) "run now" runs the task');
+// a full session (maxTurns 3 here) is swapped for a fresh one; other sessions' turns do not count
+const turnEnd = (sid) => bus.emit('session/event', agents.get(sid).session, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } });
+turnEnd(sessions()['Tester-Forever'].sessionId);
+turnEnd(reportSid); turnEnd(reportSid);
+await sleep(100);
+check(sessions()[REPORT].turns === 2 && schCalls.edit.length === 1, '(o) two reports: counted, same session');
+turnEnd(reportSid);
+await sleep(200);
+const reportSid2 = sessions()[REPORT].sessionId;
+check(reportSid2 !== reportSid && sessions()[REPORT].turns === 0 && schCalls.edit.length === 2 && schCalls.edit[1].patch.target.sessionId === reportSid2 && !schCalls.edit[1].patch.timing,
+  `(o) after the third report the task moves to a fresh session: ${JSON.stringify(schCalls.edit[1])}`);
 await api('settings', { faction: 'Horde' });
-check(schCalls.edit.length === 1 && schCalls.edit[0].action === 'update' && schCalls.edit[0].patch.prompt.includes('faction 传 "horde"') && schCalls.create.length === 1, '(o) a changed faction updates the instruction, not the time');
+const moved = schCalls.edit[2];
+check(schCalls.edit.length === 3 && moved.patch.prompt.includes('faction 传 "horde"') && moved.patch.target.sessionId === sessions()[REPORT].sessionId
+  && moved.patch.target.sessionId !== reportSid2 && !moved.patch.timing && schCalls.create.length === 1, '(o) a changed faction: new instruction and a new session, the interval stays');
 await api('settings', { server: 'cn-pvp' });
 ms = (await api('status')).body.market;
-check(tasks.size === 0 && ms.on === true && ms.supported === false && !ms.id && conf().marketReport === true && !('marketReportId' in conf()), `(o) a China server has no such statistics: the task is removed, the switch stays: ${JSON.stringify(ms)}`);
+check(tasks.size === 0 && ms.on === true && ms.supported === false && !ms.id && conf().marketReport === true && !('marketReportId' in conf()),
+  `(o) a China server has no such report: the task is removed, the switch stays: ${JSON.stringify(ms)}`);
 ms = (await api('settings', { server: 'eu-pvp' })).body.market;
-check(tasks.size === 1 && ms.id === 'schedule-2' && ms.supported, '(o) back on an EU server: the task is made again');
+check(tasks.size === 1 && ms.id === 'schedule-2' && ms.supported && schCalls.create[1].timing.every_seconds === 21600, '(o) back on an EU server: the task is made again, with the chosen interval');
+// a task left by an earlier design (another title, weekly) is brought in line
+Object.assign(tasks.get('schedule-2'), { title: '魔兽买卖时段统计', timing: { kind: 'weekly' } });
+await api('settings', { faction: 'Horde' });
+check(schCalls.edit.at(-1).patch.title === '魔兽买卖行情（定时）' && schCalls.edit.at(-1).patch.timing.every_seconds === 21600, '(o) an older task gets the new title and interval');
 tasks.clear();   // the player deletes the task on DSH's own page
 ms = (await api('settings', { faction: 'Alliance' })).body.market;
 check(ms.on === false && conf().marketReport === false && schCalls.create.length === 2, `(o) a task deleted in DSH switches the setting off: ${JSON.stringify(ms)}`);

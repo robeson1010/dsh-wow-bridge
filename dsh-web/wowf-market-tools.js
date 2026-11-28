@@ -77,21 +77,17 @@ export function tools(load, vendorsOf = async () => new Map(), api = async () =>
       parameters: {
         faction: { type: 'string', description: '阵营：horde（部落）或 alliance（联盟）；不传按设置' },
         view: { type: 'string', description: 'now（默认）：现在最值得买和卖的；times：什么时段买卖最划算的统计' },
-        wait: { type: 'boolean', description: '只在定时任务的指令要求时传 true：等时段统计重新算完（约两分钟）再返回' },
       },
       output: text,
-      timeoutMs: 240000,
       async execute(args, exec) {
         const { server, faction, region, ruleset } = target(args.faction);
         const signal = exec?.signal;
         const key = houseKey(await api(housesUrl(), signal), region, ruleset, faction);
         if (String(args.view ?? '').trim().toLowerCase() === 'times') {
           if (!times) throw new Error('时段统计没有接上。');
-          let stats = times.read(key);
+          const stats = times.read(key);
           if (times.fresh(stats)) return timesText({ stats, faction, server });
-          const run = times.refresh(key);   // one run at a time; it goes on in the background when nobody waits
-          if (args.wait === true) return timesText({ stats: await run, faction, server });
-          run.catch(() => {});
+          times.refresh(key).catch(() => {});   // one run at a time, in the background: a question never waits for it
           if (stats) return timesText({ stats, faction, server, note: '这份统计有点旧了，正在后台重新算（约两分钟），过一会儿再问就是新的。' });
           return '买卖时段统计还没有算过：已经开始在后台读这份清单近 30 天的逐小时价格（Forever AH，每秒一个请求，约两分钟）。请玩家两分钟后再问一次；现在想知道该买卖什么，可以先问“行情”。';
         }

@@ -676,6 +676,10 @@ export function apply(ctx, config) {
     }
     if (b.autoUpdate !== undefined) patch.autoUpdate = !!b.autoUpdate;
     if (b.marketReport !== undefined) patch.marketReport = !!b.marketReport;   // the task itself: syncMarketTask (settings route)
+    if (b.marketHours !== undefined) {
+      if (!MARKET_HOURS.includes(b.marketHours)) throw bad(`间隔只能是 ${MARKET_HOURS.join('、')} 小时`);
+      patch.marketHours = b.marketHours;
+    }
     if (b.workspaceId !== undefined) {
       const id = String(b.workspaceId ?? '').trim();
       if (id && !workspaces().some((w) => w.id === id)) throw bad('没有这个工作区');
@@ -778,30 +782,36 @@ export function apply(ctx, config) {
     return timers;
   }
 
-  // ----- the weekly buy/sell-hours statistics: a DSH scheduled task, opt-in on the settings page -----
-  // DSH's Schedule service ("自动化任务") delivers the instruction below to a fresh session of preset wowf each time; the
-  // agent calls wow_flip_market(view: times, wait: true), which recomputes the statistics (<dataDir>/market-times.json,
-  // also read by in-game questions), and writes the report in that session. dsh web must be running; a missed run is
-  // delivered at the next start. The task is an ordinary one: the player can change its time, pause or delete it on
-  // DSH's own page. This plugin only creates it, keeps its instruction in step with the server setting, and removes it
-  // when it is switched off; a task the player deleted in DSH switches the setting off.
-  const MARKET_TITLE = '魔兽买卖时段统计';
-  const MARKET_TIME = '07:30:00', MARKET_WEEKDAYS = [1];   // Mondays; Forever AH has every hour on record, so once a week is enough
+  // ----- the buy/sell report every N hours: a DSH scheduled task, opt-in on the settings page -----
+  // DSH's own Schedule service ("自动化任务") delivers the instruction below every N hours (the player picks N on the
+  // settings page, default 2) to ONE session this plugin opens for it (preset wowf, read-only, approval never, the
+  // configured model: like a character's session). The agent calls wow_flip_market and writes what is worth buying and
+  // selling right now. dsh web must be running; a missed run is delivered once at the next start.
+  // The task is an ordinary one: the player can pause or delete it on DSH's own page (deleting it there switches the
+  // setting off). This plugin creates it, keeps its instruction in step with the server setting, changes its interval
+  // when the setting changes, moves it to a fresh session after cfg.maxTurns reports (a session's history is never
+  // trimmed, and every run re-reads all of it), and removes it when it is switched off.
+  const MARKET_TITLE = '魔兽买卖行情（定时）';
+  const MARKET_KEY = '#买卖行情（定时）';             // its entry in web-sessions.json; no character is named like this
+  const MARKET_HOURS = [1, 2, 3, 4, 6, 8, 12, 24];   // the snapshots are hourly: nothing shorter makes sense
+  const MARKET_DEFAULT_HOURS = 2;
+  const marketHours = (local = localConfig(cfg.dataDir)) => (MARKET_HOURS.includes(local.marketHours) ? local.marketHours : MARKET_DEFAULT_HOURS);
   const scheduleOf = () => {
     try {
       const s = ctx.get('schedule');
       return s && ['create', 'edit', 'view', 'run'].every((m) => typeof s[m] === 'function') ? s : undefined;
     } catch { return undefined; }
   };
-  const zone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
   const marketSupported = () => serverInfo(readSettings(cfg.dataDir)).prices === 'wowauctions';
+  const everyOf = (hours) => ({ kind: 'every', every_seconds: hours * 3600 });
   function marketPrompt() {
     const info = serverInfo(readSettings(cfg.dataDir));
     return [
-      '这是定时运行的“买卖时段统计”任务，不是玩家在游戏里的提问；这次的回答写在这个对话里，不受聊天框字数的限制。',
+      '这是定时运行的“买卖行情”任务，不是玩家在游戏里的提问；这次的回答写在这个对话里，不受聊天框字数的限制。',
       serverLine(info),
-      `请调用一次 wow_flip_market，参数 view 传 "times"、wait 传 true、faction 传 "${info.faction === 'Alliance' ? 'alliance' : 'horde'}"，等它算完（约两分钟）；不要调用别的工具。`,
-      '然后照工具结果写一份报告：一天里最便宜和最贵的时段；时段差最明显的物品逐行列全；星期规律；最后照抄工具的说明和来源。工具报错就原样说明报错，不要编数据。',
+      `请调用一次 wow_flip_market（不传 view），faction 传 "${info.faction === 'Alliance' ? 'alliance' : 'horde'}"；不要调用别的工具。`,
+      '然后照工具结果写：现在最值得买的（逐行列全：物品、一口价或最低价、有几个、入手上限、预计净利；没到入手价的就写还要再跌多少）、现在最值得卖的（逐行列全：物品、最低价、比市场价高多少、建议挂多少）、先别买的；'
+        + '第一行写这是多久以前的快照，最后注明来源。工具报错就原样说明报错，不要编数据。',
     ].join('\n');
   }
   const taskOf = async (sch, id) => {
@@ -809,9 +819,16 @@ export function apply(ctx, config) {
     const v = await sch.view({ id });
     return v && !v.code && v.status !== 'ended' ? v : null;
   };
+  // the session the reports go to: made like a character's, replaced when it is gone or has had its share of turns
+  async function marketSession() {
+    const e = store.get(MARKET_KEY);
+    if (e?.sessionId && !e.pending && (isArchived(e.sessionId) || (Number.isFinite(e.turns) ? e.turns : 0) >= cfg.maxTurns)) store.drop(MARKET_KEY);
+    return (await ensureAgent(MARKET_KEY)).id;
+  }
   let marketSync = Promise.resolve();
-  // explicitOn: the player just ticked the box (a task removed earlier is made again, not taken as a switch-off)
-  function syncMarketTask(why, explicitOn = false) {
+  // explicitOn: the player just ticked the box (a task removed earlier is made again, not taken as a switch-off);
+  // retime: the interval setting changed (otherwise an interval the player set in DSH itself is left alone)
+  function syncMarketTask(why, { explicitOn = false, retime = false } = {}) {
     const run = async () => {
       if (disposed) return;
       const sch = scheduleOf();
@@ -820,44 +837,64 @@ export function apply(ctx, config) {
       let task = await taskOf(sch, local.marketReportId);
       if (local.marketReport === true && local.marketReportId && !task && !explicitOn) {
         saveLocalConfig(cfg.dataDir, { marketReport: false, marketReportId: undefined });
-        return log('买卖时段统计：定时任务在 DSH 里被删掉或已结束，开关已关');
+        return log('买卖行情定时任务在 DSH 里被删掉或已结束，开关已关');
       }
       const want = local.marketReport === true && marketSupported();
+      const hours = marketHours(local);
       if (want && !task) {
-        const ws = await workspaceId();
-        const cwd = (ws && registry()?.get(ws)?.path) || workCwd;
-        if (cwd === workCwd) fs.mkdirSync(workCwd, { recursive: true });
-        task = await sch.create({
-          title: MARKET_TITLE, prompt: marketPrompt(),
-          timing: { kind: 'weekly', weekly: { time: MARKET_TIME, time_zone: zone(), weekdays: MARKET_WEEKDAYS } },
-          target: { kind: 'new', create: { cwd, agentPreset: cfg.preset } },
-        }, undefined, life.signal);
+        const sessionId = await marketSession();
+        task = await sch.create({ title: MARKET_TITLE, prompt: marketPrompt(), timing: everyOf(hours), target: { kind: 'session', sessionId } }, undefined, life.signal);
         saveLocalConfig(cfg.dataDir, { marketReportId: task.id });
-        log(`买卖时段统计：已建 DSH 定时任务 ${task.id}（每周一 ${MARKET_TIME.slice(0, 5)}，${zone()}；对话放在 ${cwd}）`);
+        log(`买卖行情定时任务：已建 ${task.id}（每 ${hours} 小时，写在对话 ${sessionId}）`);
       } else if (!want && task) {
         await sch.edit({ id: task.id, action: 'delete' }, undefined, life.signal);
         saveLocalConfig(cfg.dataDir, { marketReportId: undefined });
-        log(`买卖时段统计：已删除 DSH 定时任务 ${task.id}`);
+        log(`买卖行情定时任务：已删除 ${task.id}`);
       } else if (!want && local.marketReportId) {
         saveLocalConfig(cfg.dataDir, { marketReportId: undefined });
-      } else if (want && task && task.prompt !== marketPrompt()) {
-        await sch.edit({ id: task.id, action: 'update', patch: { prompt: marketPrompt() } }, undefined, life.signal);
-        log('买卖时段统计：定时任务的指令已按现在的服务器设置更新');
+      } else if (want && task) {
+        const patch = {};
+        if (task.title !== MARKET_TITLE) { patch.title = MARKET_TITLE; patch.timing = everyOf(hours); }   // a task of an earlier design
+        if (task.prompt !== marketPrompt()) patch.prompt = marketPrompt();
+        if (retime) patch.timing = everyOf(hours);
+        const target = task.target?.kind === 'session' ? task.target.sessionId : null;
+        const entry = store.get(MARKET_KEY);
+        const worn = !target || target !== entry?.sessionId || isArchived(target) || (Number.isFinite(entry?.turns) ? entry.turns : 0) >= cfg.maxTurns;
+        if (worn) patch.target = { kind: 'session', sessionId: await marketSession() };
+        if (Object.keys(patch).length) {
+          await sch.edit({ id: task.id, action: 'update', patch }, undefined, life.signal);
+          log(`买卖行情定时任务：已更新 ${Object.keys(patch).join('、')}${patch.timing ? `（每 ${hours} 小时）` : ''}${patch.target ? `（新对话 ${patch.target.sessionId}）` : ''}`);
+        }
       }
     };
     // one at a time, never rejecting (callers may not await)
-    marketSync = marketSync.then(run).catch((e) => log(`买卖时段统计（${why}）：${e?.message}`));
+    marketSync = marketSync.then(run).catch((e) => log(`买卖行情定时任务（${why}）：${e?.message}`));
     return marketSync;
   }
+  // every finished turn in the report session counts; a full session is swapped for a fresh one before the next run
+  const marketOffs = [];
+  safeOn(marketOffs, 'session/event', (session, ev) => {
+    if (disposed || ev?.type !== 'turn/end') return;
+    const e = store.get(MARKET_KEY);
+    if (!e?.sessionId || e.pending || session?.id !== e.sessionId) return;
+    const turns = (Number.isFinite(e.turns) ? e.turns : 0) + 1;
+    store.set(MARKET_KEY, { ...e, turns, at: new Date().toISOString() });
+    if (turns >= cfg.maxTurns) syncMarketTask('换新对话');
+  });
   async function marketStatus() {
     const local = localConfig(cfg.dataDir);
     const sch = scheduleOf();
-    const base = { available: !!sch, supported: marketSupported(), on: local.marketReport === true, zone: zone(), time: MARKET_TIME.slice(0, 5) };
+    const base = { available: !!sch, supported: marketSupported(), on: local.marketReport === true, hours: marketHours(local), choices: MARKET_HOURS, title: MARKET_TITLE };
     if (!sch || !local.marketReportId) return base;
     try {
       const t = await taskOf(sch, local.marketReportId);
       if (!t) return { ...base, missing: true };
-      return { ...base, id: t.id, status: t.status, next: t.scheduledAt ?? null, last: t.lastDelivery?.deliveredAt ?? null };
+      const every = t.kind === 'every' && Number.isFinite(t.everySeconds) ? t.everySeconds : null;
+      return {
+        ...base, id: t.id, status: t.status, next: t.scheduledAt ?? null, last: t.lastDelivery?.deliveredAt ?? null,
+        // the interval the task really has (the player may have changed it in DSH itself)
+        ...(every && every !== base.hours * 3600 ? { taskEverySeconds: every } : {}),
+      };
     } catch (e) { return { ...base, error: String(e?.message ?? e) }; }
   }
 
@@ -866,17 +903,19 @@ export function apply(ctx, config) {
     settings: ['POST', async (req) => {
       const b = await jsonBody(req);
       applySettings(b);
-      if (b.marketReport !== undefined || b.server !== undefined || b.faction !== undefined) await syncMarketTask('设置', b.marketReport === true);
+      if (b.marketReport !== undefined || b.marketHours !== undefined || b.server !== undefined || b.faction !== undefined || b.workspaceId !== undefined) {
+        await syncMarketTask('设置', { explicitOn: b.marketReport === true, retime: b.marketHours !== undefined });
+      }
       return statusOf();
     }],
     'market-run': ['POST', async () => {
       const sch = scheduleOf();
       const id = localConfig(cfg.dataDir).marketReportId;
-      if (!sch || !id) throw bad('先打开“每周自动统计”');
+      if (!sch || !id) throw bad('先打开定时报告');
       const r = await sch.run({ id }, life.signal);
       if (r?.code === 'schedule_execution_pending') throw bad('上一次运行还没结束');
       if (r?.code) throw bad('定时任务不在了：把开关关掉再打开');
-      log('买卖时段统计：手动运行了一次定时任务');
+      log('买卖行情定时任务：手动运行了一次');
       return { ...(await statusOf()), ran: true };
     }],
     'pick-folder': ['POST', async () => {
@@ -968,11 +1007,12 @@ export function apply(ctx, config) {
     // before the first in-game question
     const early = setTimeout(() => { if (!disposed) removeOldWorkspace().catch((e) => log(`工作区：${e?.message}`)); }, 3000);
     // the scheduled task follows the settings (a new instruction after an upgrade; a task deleted in DSH = switched off)
-    const marketTimer = setTimeout(() => { try { syncMarketTask('启动'); } catch (e) { log(`买卖时段统计：${e?.message}`); } }, 8000);
+    const marketTimer = setTimeout(() => { try { syncMarketTask('启动'); } catch (e) { log(`买卖行情定时任务：${e?.message}`); } }, 8000);
     return async () => {
       disposed = true;
       clearTimeout(early);
       clearTimeout(marketTimer);
+      for (const off of marketOffs) { try { off(); } catch { /* already gone */ } }
       for (const t of updateTimers) clearTimeout(t);
       life.abort();
       watch.stop();

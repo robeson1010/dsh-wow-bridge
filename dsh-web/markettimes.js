@@ -2,9 +2,8 @@
 // from Forever AH's hourly price history (see ./foreverah.js for the API and its terms). No DSH imports.
 //   GET /v1/houses/{key}/items/{id}/history?resolution=hour&from=…&to=…   hourly points, up to 62 days back
 // One request per item, a second apart: a full run over the list takes about a minute and a half, so the result is
-// kept in a file (<dataDir>/market-times.json, one entry per auction house) and answers read that file. A DSH
-// scheduled task (index.js, opt-in on the settings page) asks for a fresh run once a week; a question that finds the
-// file old starts a run in the background.
+// kept in a file (<dataDir>/market-times.json, one entry per auction house) and answers read that file; a question
+// that finds the file missing or old starts a run in the background and says so.
 // Method, per item: every hourly price (the 10th-percentile unit price: steadier than the single cheapest auction) is
 // divided by the median of its own local day, which removes the day-to-day trend; per hour of the day the median of
 // those ratios over the days is taken; the cheapest and the dearest 3-hour blocks are reported with how many days the order held.
@@ -203,7 +202,7 @@ export function timesText({ stats, faction, server = '欧服 PvP', now = Date.no
   return lines.join('\n');
 }
 
-// One run at a time per auction house; a question never waits for a run unless it asks to.
+// One run at a time per auction house; a question never waits for a run.
 export function makeTimes(api, { dataDir, log = () => {}, ids, signal: life } = {}) {
   const running = new Map();   // key -> Promise<stats>
   const dir = () => (typeof dataDir === 'function' ? dataDir() : dataDir);

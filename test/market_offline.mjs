@@ -447,7 +447,7 @@ const badTimes = makeTimes(async () => { throw new Error('down'); }, { dataDir: 
 await assert.rejects(badTimes.refresh(5), /读不到/);
 await new Promise((r) => setImmediate(r));
 assert.ok(timeLogs.some((l) => l.includes('买卖时段统计失败')), String(timeLogs));
-// the tool, view = times: fresh file -> the text, no requests; nothing yet -> starts a run and says so; wait -> the new text
+// the tool, view = times: fresh file -> the text, no requests; nothing yet -> starts a run in the background and says so
 histCalls = 0;
 const timesTool = tools(async () => item.props.pageProps, undefined, countingApi, times)[2];
 const tt1 = await timesTool.execute({ view: 'times' }, {});
@@ -455,7 +455,9 @@ assert.ok(tt1.startsWith('买卖时段统计 · 欧服 PvP 部落拍卖行') && 
 const tt2 = await timesTool.execute({ view: 'times', faction: 'alliance' }, {});   // house 18: nothing stored
 assert.ok(tt2.includes('买卖时段统计还没有算过') && tt2.includes('两分钟后再问'), tt2);
 assert.ok(times.busy(18));
-const tt3 = await timesTool.execute({ view: 'TIMES', faction: 'alliance', wait: true }, {});   // joins the run that is going
+await times.refresh(18);   // the run that question started
+await new Promise((r) => setImmediate(r));
+const tt3 = await timesTool.execute({ view: 'TIMES', faction: 'alliance' }, {});
 assert.ok(tt3.startsWith('买卖时段统计 · 欧服 PvP 联盟拍卖行') && histCalls === 2, tt3);
 // an old file: its text with a note, and a run in the background
 writeTimes(timesDir, 21, { ...times.read(21), builtAt: new Date(Date.now() - FRESH_MS - 60000).toISOString() });
@@ -465,7 +467,7 @@ await times.refresh(21);
 await new Promise((r) => setImmediate(r));
 assert.ok(times.fresh(times.read(21)));
 await assert.rejects(tools(async () => item.props.pageProps, undefined, countingApi)[2].execute({ view: 'times' }, {}), /时段统计没有接上/);
-assert.equal(timesTool.timeoutMs, 240000);
+assert.ok(!('wait' in timesTool.parameters));
 fs.rmSync(tmpTimes, { recursive: true, force: true });
 fs.rmSync(timesDir, { recursive: true, force: true });
 
