@@ -48,7 +48,11 @@ QuickMenu.Send = Send
 
 local function MarketText(link) return "行情：" .. link .. " 现在多少钱，适合买还是卖？" end
 local function CraftText(name) return ("制作利润：%s 现在做什么拿去拍卖行卖最赚钱？"):format(name) end
-QuickMenu.MarketText, QuickMenu.CraftText = MarketText, CraftText
+-- no item and no profession: the best buys and the best sells right now among the common items DSH watches
+local FLIP_TEXT = "买卖行情：现在最值得买和最值得卖的是什么？"
+-- the hours of the day (and weekdays) when those items are cheapest and dearest
+local HOURS_TEXT = "买卖时段：一天里什么时候买、什么时候卖最划算？"
+QuickMenu.MarketText, QuickMenu.CraftText, QuickMenu.FLIP_TEXT, QuickMenu.HOURS_TEXT = MarketText, CraftText, FLIP_TEXT, HOURS_TEXT
 
 -- ---- the item under the mouse ----
 -- link (or nil, item id) of the item a tooltip shows. filling: called from the tooltip post-call, which Blizzard runs
@@ -233,6 +237,15 @@ local function Generate(_, root)
 			craft:CreateButton(name, function() Send(CraftText(name)) end)
 		end
 	end
+
+	local flip = root:CreateButton("买卖行情：现在该买什么、卖什么", function() Send(FLIP_TEXT) end)
+	flip:SetTooltip(function(tt)
+		GameTooltip_SetTitle(tt, "在一份大交易量常见物品清单里，列出现在最值得买和最值得卖的。价格要在拍卖行核实，买卖自己点。")
+	end)
+	local hours = root:CreateButton("买卖时段：什么时候买卖最划算", function() Send(HOURS_TEXT) end)
+	hours:SetTooltip(function(tt)
+		GameTooltip_SetTitle(tt, "同一份清单近 30 天的逐小时价格：一天里什么时段最便宜、什么时段最贵。第一次问要等两分钟统计。")
+	end)
 
 	root:CreateDivider()
 	local questions = db and db.questions or {}

@@ -16,7 +16,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Intake } from './lib/intake.mjs';
 import { GameWatch, wowPid } from './lib/game.mjs';
-import { prompt as buildPrompt, translatePrompt, factionOf, collectCraftItems, linkCraftItems } from './lib/answer.mjs';
+import { prompt as buildPrompt, translatePrompt, factionOf, collectCraftItems, linkCraftItems, serverLine } from './lib/answer.mjs';
 import * as MB from './lib/fontmail.mjs';
 import { readAdvances } from './lib/ttf.mjs';
 import { findAddOns, addOnsOf, syncAddon, addonState, addonVersion, pickFolder, saveLocalConfig, FLAVOR } from './lib/setup.mjs';
@@ -437,7 +437,7 @@ export function apply(ctx, config) {
     safeOn(offs, 'session/event', (session, ev) => {
       if (myTurn === undefined || session?.id !== sessionId) return;
       if (ev?.data?.turn !== myTurn) return;
-      if (ev.type === 'tool/call' && ev.data.name === 'wow_craft_profit' && ev.data.callId) {
+      if (ev.type === 'tool/call' && (ev.data.name === 'wow_craft_profit' || ev.data.name === 'wow_flip_market') && ev.data.callId) {
         craftCalls.add(ev.data.callId);
       } else if (ev.type === 'tool/result' && craftCalls.has(ev.data.message?.toolCallId) && !ev.data.message.isError) {
         collectCraftItems(craftItems, textOf(ev.data.message));
@@ -656,6 +656,7 @@ export function apply(ctx, config) {
         missing: st?.missing ?? [], changed: st?.changed ?? [], slots: st?.slots ?? 0, waiting: installWaiting,
       },
       voice: { ...(await voiceStatus()), busy: voiceBusy },
+      market: await marketStatus(),
       update: {
         ...(update.result ?? {}), current: info.version, checking: update.checking, applying: update.applying, message: update.message,
         needsRestart: needsRestart(), restarted: update.restarted, desktop: isDesktopHost(),
@@ -674,6 +675,7 @@ export function apply(ctx, config) {
       patch.faction = b.faction;
     }
     if (b.autoUpdate !== undefined) patch.autoUpdate = !!b.autoUpdate;
+    if (b.marketReport !== undefined) patch.marketReport = !!b.marketReport;   // the task itself: syncMarketTask (settings route)
     if (b.workspaceId !== undefined) {
       const id = String(b.workspaceId ?? '').trim();
       if (id && !workspaces().some((w) => w.id === id)) throw bad('没有这个工作区');
@@ -776,9 +778,107 @@ export function apply(ctx, config) {
     return timers;
   }
 
+  // ----- the weekly buy/sell-hours statistics: a DSH scheduled task, opt-in on the settings page -----
+  // DSH's Schedule service ("自动化任务") delivers the instruction below to a fresh session of preset wowf each time; the
+  // agent calls wow_flip_market(view: times, wait: true), which recomputes the statistics (<dataDir>/market-times.json,
+  // also read by in-game questions), and writes the report in that session. dsh web must be running; a missed run is
+  // delivered at the next start. The task is an ordinary one: the player can change its time, pause or delete it on
+  // DSH's own page. This plugin only creates it, keeps its instruction in step with the server setting, and removes it
+  // when it is switched off; a task the player deleted in DSH switches the setting off.
+  const MARKET_TITLE = '魔兽买卖时段统计';
+  const MARKET_TIME = '07:30:00', MARKET_WEEKDAYS = [1];   // Mondays; Forever AH has every hour on record, so once a week is enough
+  const scheduleOf = () => {
+    try {
+      const s = ctx.get('schedule');
+      return s && ['create', 'edit', 'view', 'run'].every((m) => typeof s[m] === 'function') ? s : undefined;
+    } catch { return undefined; }
+  };
+  const zone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
+  const marketSupported = () => serverInfo(readSettings(cfg.dataDir)).prices === 'wowauctions';
+  function marketPrompt() {
+    const info = serverInfo(readSettings(cfg.dataDir));
+    return [
+      '这是定时运行的“买卖时段统计”任务，不是玩家在游戏里的提问；这次的回答写在这个对话里，不受聊天框字数的限制。',
+      serverLine(info),
+      `请调用一次 wow_flip_market，参数 view 传 "times"、wait 传 true、faction 传 "${info.faction === 'Alliance' ? 'alliance' : 'horde'}"，等它算完（约两分钟）；不要调用别的工具。`,
+      '然后照工具结果写一份报告：一天里最便宜和最贵的时段；时段差最明显的物品逐行列全；星期规律；最后照抄工具的说明和来源。工具报错就原样说明报错，不要编数据。',
+    ].join('\n');
+  }
+  const taskOf = async (sch, id) => {
+    if (!id) return null;
+    const v = await sch.view({ id });
+    return v && !v.code && v.status !== 'ended' ? v : null;
+  };
+  let marketSync = Promise.resolve();
+  // explicitOn: the player just ticked the box (a task removed earlier is made again, not taken as a switch-off)
+  function syncMarketTask(why, explicitOn = false) {
+    const run = async () => {
+      if (disposed) return;
+      const sch = scheduleOf();
+      if (!sch) return;
+      const local = localConfig(cfg.dataDir);
+      let task = await taskOf(sch, local.marketReportId);
+      if (local.marketReport === true && local.marketReportId && !task && !explicitOn) {
+        saveLocalConfig(cfg.dataDir, { marketReport: false, marketReportId: undefined });
+        return log('买卖时段统计：定时任务在 DSH 里被删掉或已结束，开关已关');
+      }
+      const want = local.marketReport === true && marketSupported();
+      if (want && !task) {
+        const ws = await workspaceId();
+        const cwd = (ws && registry()?.get(ws)?.path) || workCwd;
+        if (cwd === workCwd) fs.mkdirSync(workCwd, { recursive: true });
+        task = await sch.create({
+          title: MARKET_TITLE, prompt: marketPrompt(),
+          timing: { kind: 'weekly', weekly: { time: MARKET_TIME, time_zone: zone(), weekdays: MARKET_WEEKDAYS } },
+          target: { kind: 'new', create: { cwd, agentPreset: cfg.preset } },
+        }, undefined, life.signal);
+        saveLocalConfig(cfg.dataDir, { marketReportId: task.id });
+        log(`买卖时段统计：已建 DSH 定时任务 ${task.id}（每周一 ${MARKET_TIME.slice(0, 5)}，${zone()}；对话放在 ${cwd}）`);
+      } else if (!want && task) {
+        await sch.edit({ id: task.id, action: 'delete' }, undefined, life.signal);
+        saveLocalConfig(cfg.dataDir, { marketReportId: undefined });
+        log(`买卖时段统计：已删除 DSH 定时任务 ${task.id}`);
+      } else if (!want && local.marketReportId) {
+        saveLocalConfig(cfg.dataDir, { marketReportId: undefined });
+      } else if (want && task && task.prompt !== marketPrompt()) {
+        await sch.edit({ id: task.id, action: 'update', patch: { prompt: marketPrompt() } }, undefined, life.signal);
+        log('买卖时段统计：定时任务的指令已按现在的服务器设置更新');
+      }
+    };
+    // one at a time, never rejecting (callers may not await)
+    marketSync = marketSync.then(run).catch((e) => log(`买卖时段统计（${why}）：${e?.message}`));
+    return marketSync;
+  }
+  async function marketStatus() {
+    const local = localConfig(cfg.dataDir);
+    const sch = scheduleOf();
+    const base = { available: !!sch, supported: marketSupported(), on: local.marketReport === true, zone: zone(), time: MARKET_TIME.slice(0, 5) };
+    if (!sch || !local.marketReportId) return base;
+    try {
+      const t = await taskOf(sch, local.marketReportId);
+      if (!t) return { ...base, missing: true };
+      return { ...base, id: t.id, status: t.status, next: t.scheduledAt ?? null, last: t.lastDelivery?.deliveredAt ?? null };
+    } catch (e) { return { ...base, error: String(e?.message ?? e) }; }
+  }
+
   const ROUTES = {
     status: ['GET', () => statusOf()],
-    settings: ['POST', async (req) => { applySettings(await jsonBody(req)); return statusOf(); }],
+    settings: ['POST', async (req) => {
+      const b = await jsonBody(req);
+      applySettings(b);
+      if (b.marketReport !== undefined || b.server !== undefined || b.faction !== undefined) await syncMarketTask('设置', b.marketReport === true);
+      return statusOf();
+    }],
+    'market-run': ['POST', async () => {
+      const sch = scheduleOf();
+      const id = localConfig(cfg.dataDir).marketReportId;
+      if (!sch || !id) throw bad('先打开“每周自动统计”');
+      const r = await sch.run({ id }, life.signal);
+      if (r?.code === 'schedule_execution_pending') throw bad('上一次运行还没结束');
+      if (r?.code) throw bad('定时任务不在了：把开关关掉再打开');
+      log('买卖时段统计：手动运行了一次定时任务');
+      return { ...(await statusOf()), ran: true };
+    }],
     'pick-folder': ['POST', async () => {
       if (process.platform !== 'win32') throw bad('只有 Windows 能弹出选择窗口：请直接填路径');
       const picked = await pickFolder({ title: 'DSH 频道：选择《魔兽世界：无限》的游戏文件夹（World of Warcraft 或里面的 _forever_）', signal: life.signal });
@@ -867,9 +967,12 @@ export function apply(ctx, config) {
     // remove the workspace 0.5.0 registered (detached: apply() must not wait on DSH services)
     // before the first in-game question
     const early = setTimeout(() => { if (!disposed) removeOldWorkspace().catch((e) => log(`工作区：${e?.message}`)); }, 3000);
+    // the scheduled task follows the settings (a new instruction after an upgrade; a task deleted in DSH = switched off)
+    const marketTimer = setTimeout(() => { try { syncMarketTask('启动'); } catch (e) { log(`买卖时段统计：${e?.message}`); } }, 8000);
     return async () => {
       disposed = true;
       clearTimeout(early);
+      clearTimeout(marketTimer);
       for (const t of updateTimers) clearTimeout(t);
       life.abort();
       watch.stop();

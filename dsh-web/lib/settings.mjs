@@ -81,5 +81,5 @@ export function marketTarget(argFaction, settings = readSettings()) {
   if (s.prices !== 'wowauctions') throw new Error(`设置里的服务器是${s.label}：价格请用 mcp__wuxianwow__auction_house（house: ${s.house}）。`);
   const f = String(argFaction ?? '').trim();
   const faction = f ? (/^(alliance|联盟)$/i.test(f) ? 'alliance' : 'horde') : (s.faction === 'Alliance' ? 'alliance' : 'horde');
-  return { realm: s.realm, server: s.label, faction };
+  return { realm: s.realm, server: s.label, faction, region: s.region, ruleset: s.ruleset };
 }

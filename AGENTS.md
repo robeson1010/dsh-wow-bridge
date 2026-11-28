@@ -40,7 +40,7 @@
 3. **预设 `wowf` 只准有只读的魔兽资料工具**：游戏里的文字（任务名、物品提示、玩家问题）是不可信输入。
    `dsh-web/wowf-tool-policy.js` 是边界：guard 只放行 web_search、web_fetch（白名单 wowhead.com、wuxianwow.com、
    warcraft.wiki.gg、wowpedia.fandom.com、icy-veins.com、wowauctions.net 及子域名）
-   我们自己的 `wow_item_market`、`wow_craft_profit`（`OWN_TOOLS`）和 `MCP_TOOLS` 里的 15 个无限图鉴工具；文件、命令、worktree、MCP 资源、report_issue、导演台/视频工具都隐藏并拒绝执行。
+   我们自己的 `wow_item_market`、`wow_craft_profit`、`wow_flip_market`（`OWN_TOOLS`）和 `MCP_TOOLS` 里的 15 个无限图鉴工具；文件、命令、worktree、MCP 资源、report_issue、导演台/视频工具都隐藏并拒绝执行。
    每个工具的说明在每次模型调用里都要发（2026-11-20 的 31 个工具约 2 万 token/次）：加工具前先想清楚值不值。
    无限图鉴的结果在 `tools/post-execute` 里瘦身（去掉每次都一样的数据说明 `note`/`*_note`、空值、item_usage 的国服拍卖块，
    超过 8000 字只留头尾），只改模型看到的内容、不改工具返回值。
@@ -111,6 +111,22 @@
 - **发版就是改版本号再推到 main**：`dsh-web/package.json` 的 `version`（必须比上一版大，semver）和 `DSHChat.toc` 的 `## Version`。
   推之前全部测试要过：推上去的东西几小时内就会装到所有人的电脑上。
 
+## 买卖行情和买卖时段（`wow_flip_market`，0.5.7）
+
+- 用户定的逻辑（2026-11-28）：我们自己维护一份**固定的常见物品清单**（交易量大的，数量我们定，现在 80 种），每次询问只在这份清单里说“现在最值得买的”和“最值得卖的”。
+  清单是 `dsh-web/watchlist.js`，由 `node tools/update-watchlist.mjs [区域] [数量]` 从 Forever AH 的全区合并拍卖行重新生成（材料、消耗品、容器，按日成交额排；不要手改）。
+- 数据源是 **Forever AH**（`dsh-web/foreverah.js`）：forever-ah.com 的公开 JSON 接口，免费、不要密钥，条款是“能缓存就缓存、大约每秒一个请求、注明 Forever AH 和暴雪 Battle.net API”。
+  所以请求一律排队（间隔 1 秒）、结果缓存 10 分钟（拍卖行列表 12 小时），工具结果里写来源。2026-11-28 核对过：同一份快照下它和 wowauctions 的最低价、数量 50/50 一致；
+  拍卖行编号（PvP 110/113、PvE 111/114、RP 119/120、RP-PvP 123/124，联盟/部落）在欧服、美服 16 个拍卖行上都对得上。它 2026-11-14 才开始有数据，逐小时覆盖率 99.4%。
+  ahprice.com 也有公开接口，但数据是玩家扫描汇集的，更新不规律（最长断 9–12 小时，50 件物品里只有 27 件和官方快照差 5% 以内），**不用它做判断**。
+- 规则（和 Codex 里的 Astra 讨论后定的试行值，都在 `foreverah.js` 顶部）：预期卖价取市场价、历史价、下一档挂单价里最低的再让 5%，扣 5% 手续费；“入手上限”= 净利正好 30% 的买价，40% 标达标；
+  低价货必须能整档买完（不超过日销量的一半），否则剩下的低价单会压住转卖价；市场价趋势 ≤ −10% 的不推荐买；卖：最低价比市场价和历史价都高 15% 以上。
+- 买卖时段（`dsh-web/markettimes.js`）：每件物品一个历史请求，80 件约 80 秒，所以结果存在 `<dataDir>/market-times.json`（每个拍卖行一份），游戏里的提问只读文件；
+  文件超过 26 小时就在后台重算（一次只跑一个，随插件卸载中止）。统计用当天中位价归一化、按钟点取各天的中位数（平均数会被库存稀薄时的尖峰带偏）。
+- **自动运行用 DSH 自带的自动化任务**（Schedule 服务，`ctx.get('schedule')`），只在玩家在设置页勾选后才建：每周一 07:30（本机时区），目标是每次新开一个 `wowf` 预设的对话，
+  指令让它调用 `wow_flip_market(view: times, wait: true)` 并写报告。任务是普通任务，玩家可以在 DSH 的自动化任务页面改时间、暂停、删除；在那里删掉 = 关掉开关。
+  插件只负责建、按服务器设置更新指令、关掉时删除；设置存 config.json 的 `marketReport` / `marketReportId`。**默认关**：发版会装到所有人电脑上，定时任务要花对方的额度。
+
 ## 测试
 
 - `py -3.12 -X utf8 test/e2e_offline.py`：需要 `../compact-minimap/tools/vendor` 里的 lupa（Lua 5.1）。第 9 项测快捷菜单（菜单是模拟的：
@@ -120,7 +136,7 @@
 - `node test/web_plugin_offline.mjs`：插件 + 假宿主，测会话续接、重置、超时取消、卸载后不写、管道被占重试、零未捕获错误。
 - `node test/setup_offline.mjs`：找游戏目录（假的 WoW 目录树）、游戏开着/关着时的安装行为、没有游戏目录时插件照常运行、升级检查（假的 GitHub）。
 - `node test/wowf_policy_offline.mjs`：工具策略（白名单、网址检查、按服务器换价格工具、按会话隐藏、卸载后解除）和 `prompt()` 的服务器/价格说明（欧服、美服、国服）。
-- `node test/market_offline.mjs`：wowauctions 页面数据（`test/fixtures/` 里存的 `__NEXT_DATA__`）解析、判断规则、缓存。
+- `node test/market_offline.mjs`：Forever AH 的买卖行情（清单、入手上限、挂单阶梯、缓存和排队）和买卖时段统计（合成的逐小时价格）；wowauctions 页面数据（`test/fixtures/` 里存的 `__NEXT_DATA__`）解析、判断规则、缓存。
 - 改完这两个都要全过，再重启 dsh web，在游戏里 `/reload` 后 `/dshc test`。
 
 ## 日志和状态

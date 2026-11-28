@@ -23,9 +23,10 @@ function describe(ctx = {}) {
 
 export const linksOf = (req) => (Array.isArray(req.links) ? req.links.filter((l) => l && typeof l === 'object').slice(0, 5) : []);
 
-// WoWAuctions formats each ranked craft with its product name and ID at the start of a row.
+// Our market tools start each listed row with the item's name and ID: "- Name（item:ID）×…" (wow_craft_profit) or
+// "- Name（item:ID）：…" / "- Name（item:ID）【接近】：…" (wow_flip_market).
 export function collectCraftItems(items, result) {
-  for (const [, rawName, id] of result.matchAll(/^- ([^|{}\r\n]+?)（item:(\d+)）×/gm)) {
+  for (const [, rawName, id] of result.matchAll(/^- ([^|{}\r\n]+?)（item:(\d+)）(?:×|：|【)/gm)) {
     const name = rawName.trim();
     if (!name) continue;
     const key = name.toLowerCase();
@@ -63,7 +64,8 @@ export function serverLine(info) {
       + '无限图鉴里别的拍卖行（别的规则集或阵营）的价格不是玩家的拍卖行，不要拿来当行情。';
   }
   return `服务器：${info.label}，${side}。拍卖行按规则集和阵营共用；价格和商机只从网上查：一件物品用 wow_item_market，`
-    + `专业赚钱用 wow_craft_profit（wowauctions.net，阵营参数传 ${info.faction === 'Alliance' ? 'alliance' : 'horde'}），`
+    + `专业赚钱用 wow_craft_profit（wowauctions.net），只说“行情”或问现在该买什么、卖什么用 wow_flip_market（Forever AH），问什么时候买卖最划算就把它的 view 传 times；`
+    + `阵营参数都传 ${info.faction === 'Alliance' ? 'alliance' : 'horde'}，`
     + `这个拍卖行的物品价格页：${priceUrl(info.faction, '物品ID', info.realm)}。`
     + '无限图鉴工具里出现的拍卖价全都是国服的，不是玩家的服务器：玩家没问价格时不要提；提到时必须写成“国服参考价”。';
 }
@@ -75,7 +77,8 @@ export const factionOf = (ctx = {}) => (ctx.faction === 'Alliance' ? 'Alliance' 
 // auction addon only after the player confirms or asked for it (DSHChat Core.lua HandleBuy). The player still clicks
 // every purchase. Lives in the user message, like
 // the item format: the persona must never contain two opening curly braces.
-export const BUY_RULE = '采购清单：玩家要买材料、要你把材料加进购物清单，或者问做什么赚钱而你推荐了具体配方时，在回答最后单独一行写 '
+export const BUY_RULE = '采购清单：玩家要买材料、要你把材料加进购物清单，问做什么赚钱而你推荐了具体配方，'
+  + '或者 wow_flip_market 的“最值得买”里有标着达标或接近的物品（只列这些，标题写“买卖核价”，数量写工具给的个数，没给就写 1，方便玩家在拍卖行逐个核实价格）时，在回答最后单独一行写 '
   + '{{buy:清单标题|物品ID×数量,物品ID×数量}}，例如做 5 次厚符文布绷带（每次 2 块符文布）写 {{buy:厚符文布绷带×5|14047×10}}。游戏插件不显示这一行，而是把它列成采购清单，'
   + '玩家点确认或在问题里要求后才放进拍卖行购物清单，购买由玩家自己在拍卖行点；玩家要求把前面列过的材料加进购物清单时，再写一次那一行。只列要在拍卖行买的材料：工具结果里标“商人有卖”的不列（没标的、标“少数商人有”的照常列）；物品 ID 必须来自工具结果或玩家链接的物品，'
   + '不确定的不列。数量 = 每次制作需要的数量 × 制作次数；玩家没说做几次就按 5 次算，并在回答里说明按几次算。一个回答最多一个采购清单、最多 12 种材料；'

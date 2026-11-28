@@ -483,7 +483,9 @@ def main():
         sub = [(x.kind.decode(), text(x)) for x in items(craft)]
         assert sub[0] == ('button', 'Tailoring  150/300') and sub[1][0] == 'divider', sub   # own profession first, child id 2948 -> 197
         assert '裁缝' not in [s[1] for s in sub[2:]] and len(sub) == 2 + 8, sub           # the other 8, herbalism skipped
-        assert text(top[10]).startswith('自定义问题') and top[10].enabled is False and len(top) == 11, labels
+        assert labels[9] == ('button', '买卖行情：现在该买什么、卖什么') and labels[10] == ('button', '买卖时段：什么时候买卖最划算'), labels
+        assert labels[11] == ('divider', ''), labels
+        assert text(top[12]).startswith('自定义问题') and top[12].enabled is False and len(top) == 13, labels
         # A channel selection opens native chat with the slash command and does not send a request.
         channel_items = items(top[1])
         assert [text(x) for x in channel_items] == ['/DSH · DSH 提问', '/S · 说话', '/P · 小队', '/G · 公会']
@@ -552,6 +554,13 @@ def main():
         h.client.clock += 2
         items(craft)[0].cb()
         assert sent_q()['q'] == '制作利润：裁缝 现在做什么拿去拍卖行卖最赚钱？'
+        # the whole-market entry: no item and no profession in the question
+        h.client.clock += 2
+        top[9].cb()
+        assert sent_q()['q'] == '买卖行情：现在最值得买和最值得卖的是什么？'
+        h.client.clock += 2
+        top[10].cb()
+        assert sent_q()['q'] == '买卖时段：一天里什么时候买、什么时候卖最划算？'
         # the hovered-item key binding
         g.HOVER_LINK = link.encode('utf-8')
         g.DSHChat_AskHoveredMarket()
@@ -581,7 +590,7 @@ def main():
         g.SlashCmdList[b'DSHC'](b'add')
         assert any('用法：/dshc add' in l for l in h.client.chat)
         open_menu()
-        custom = items(None)[10]
+        custom = items(None)[12]
         assert text(custom) == '[Empty Thaumaturgy Vesse…' and custom.enabled is not False, text(custom)   # 24 chars; tooltip has it all
         h.client.clock += 2
         custom.cb()

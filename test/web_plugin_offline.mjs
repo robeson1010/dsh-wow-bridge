@@ -57,6 +57,22 @@ const wsRegistry = {
   resolveByPath: async (p) => [...wsRecords.values()].find((w) => path.resolve(w.path) === path.resolve(p)),
   create: async () => { wsCalls.create++; return { id: 'ws-new' }; },
 };
+// DSH's Schedule service ("自动化任务"): tasks by id, with the calls made
+const tasks = new Map();
+const schCalls = { create: [], edit: [], run: [] };
+const schedule = {
+  async create(req) { const id = `schedule-${schCalls.create.length + 1}`; schCalls.create.push(req); const task = { id, ...req, status: 'active', scheduledAt: '2026-11-30T07:30:00.000Z' }; tasks.set(id, task); return task; },
+  async view({ id }) { return tasks.get(id) ?? { id, code: 'schedule_not_found' }; },
+  async edit(req) {
+    schCalls.edit.push(req);
+    const task = tasks.get(req.id);
+    if (!task) return { id: req.id, code: 'schedule_not_found' };
+    if (req.action === 'delete') { tasks.delete(req.id); return { id: req.id, deleted: true }; }
+    Object.assign(task, req.patch);
+    return task;
+  },
+  async run({ id }) { schCalls.run.push(id); const task = tasks.get(id); if (!task) return { id, code: 'schedule_not_found' }; task.lastDelivery = { deliveredAt: '2026-11-28T10:00:00.000Z' }; return task; },
+};
 const ctx = {
   logger: () => ({ info: () => {} }),
   disposers: [],
@@ -80,6 +96,7 @@ const ctx = {
       permissionPresets: { set: (s, p) => calls.presetSet.push([s.id, p]), current: () => 'custom' },
       workspaceRegistry: wsRegistry,
       sessionTitle: { rename: () => {} },
+      schedule,
     }[nameOf];
   },
   sessionController: {
@@ -184,7 +201,7 @@ const api = async (name, body) => {
   const res = await r.fetch(new Request(`http://localhost/api/wow-dsh-bridge/${name}`, body === undefined ? { method: 'GET' } : { method: 'POST', body: JSON.stringify(body) }));
   return { status: res.status, body: await res.json() };
 };
-check(['status', 'settings', 'pick-folder', 'install-addon', 'install-voice', 'update-check', 'update'].every((n) => routes[`/api/wow-dsh-bridge/${n}`]), '(l) the settings page routes are served');
+check(['status', 'settings', 'pick-folder', 'install-addon', 'install-voice', 'update-check', 'update', 'market-run'].every((n) => routes[`/api/wow-dsh-bridge/${n}`]), '(l) the settings page routes are served');
 let st = await api('status');
 check(st.status === 200 && st.body.game.addons === addons && st.body.addon.installed === null && st.body.settings.server === 'eu-pvp'
   && st.body.settings.faction === 'auto' && st.body.servers.length === 11, `(l) status: ${JSON.stringify(st.body.addon)}`);
@@ -307,6 +324,38 @@ await send({ type: 'ask', q: '炼金利润链接测试' });
 const profit = await waitSlot(18);
 check(profit?.text === '- 强效力量药剂 {{item:1|Elixir of Strength}}：利润 5 银\n- {{item:2|Fire Oil}} ×2\n- [Ambiguous]\n{{buy:Fire Oil×5|12×10}}',
   '(n) use the craft tool item IDs in the answer and keep ambiguous names and the shopping list intact');
+
+// (o) the weekly buy/sell-hours statistics: a DSH scheduled task, made only when the player switches it on
+const conf = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'));
+let ms = (await api('status')).body.market;
+check(ms.available && ms.supported && ms.on === false && !ms.id && schCalls.create.length === 0, `(o) off by default, nothing created: ${JSON.stringify(ms)}`);
+check((await api('market-run', {})).status === 400, '(o) nothing to run while it is off');
+ms = (await api('settings', { marketReport: true })).body.market;
+const made = schCalls.create[0];
+check(ms.on && ms.id === 'schedule-1' && ms.status === 'active' && ms.next === '2026-11-30T07:30:00.000Z' && conf().marketReport === true && conf().marketReportId === 'schedule-1', `(o) switched on: one task, remembered: ${JSON.stringify(ms)}`);
+check(made.title === '魔兽买卖时段统计' && made.timing.kind === 'weekly' && made.timing.weekly.time === '07:30:00' && made.timing.weekly.weekdays.join() === '1' && !!made.timing.weekly.time_zone,
+  `(o) weekly, Mondays 07:30 local: ${JSON.stringify(made.timing)}`);
+check(made.target.kind === 'new' && made.target.create.agentPreset === 'wowf' && made.target.create.cwd === path.join(tmp, 'code'), `(o) a fresh wowf session each time, in the picked workspace: ${JSON.stringify(made.target)}`);
+check(made.prompt.includes('wow_flip_market') && made.prompt.includes('view 传 "times"') && made.prompt.includes('wait 传 true') && made.prompt.includes('faction 传 "alliance"') && made.prompt.includes('服务器：欧服 PvP，联盟'),
+  `(o) the instruction names the tool call and the server: ${made.prompt}`);
+await api('settings', { marketReport: true });
+check(schCalls.create.length === 1 && schCalls.edit.length === 0, '(o) switching on twice makes no second task');
+const ran = await api('market-run', {});
+check(ran.status === 200 && ran.body.ran === true && schCalls.run.join() === 'schedule-1' && ran.body.market.last === '2026-11-28T10:00:00.000Z', '(o) "run now" runs the task');
+await api('settings', { faction: 'Horde' });
+check(schCalls.edit.length === 1 && schCalls.edit[0].action === 'update' && schCalls.edit[0].patch.prompt.includes('faction 传 "horde"') && schCalls.create.length === 1, '(o) a changed faction updates the instruction, not the time');
+await api('settings', { server: 'cn-pvp' });
+ms = (await api('status')).body.market;
+check(tasks.size === 0 && ms.on === true && ms.supported === false && !ms.id && conf().marketReport === true && !('marketReportId' in conf()), `(o) a China server has no such statistics: the task is removed, the switch stays: ${JSON.stringify(ms)}`);
+ms = (await api('settings', { server: 'eu-pvp' })).body.market;
+check(tasks.size === 1 && ms.id === 'schedule-2' && ms.supported, '(o) back on an EU server: the task is made again');
+tasks.clear();   // the player deletes the task on DSH's own page
+ms = (await api('settings', { faction: 'Alliance' })).body.market;
+check(ms.on === false && conf().marketReport === false && schCalls.create.length === 2, `(o) a task deleted in DSH switches the setting off: ${JSON.stringify(ms)}`);
+ms = (await api('settings', { marketReport: true })).body.market;
+check(ms.on && ms.id === 'schedule-3', '(o) and ticking the box again makes a new one');
+ms = (await api('settings', { marketReport: false })).body.market;
+check(ms.on === false && tasks.size === 0 && !('marketReportId' in conf()) && schCalls.edit.at(-1).action === 'delete', '(o) switched off: the task is deleted');
 
 // (e) dispose in the middle of a question: no slot is written
 answerDelay = 1500;

@@ -90,7 +90,7 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
       } catch (e) { if (alive.current) setErr(e.message); } finally { if (alive.current) setBusy(''); }
     };
 
-    if (props && props.view === 'summary') return h('span', null, '游戏内 [DSH] 频道：服务器、游戏目录、游戏插件、静音语音、自动升级');
+    if (props && props.view === 'summary') return h('span', null, '游戏内 [DSH] 频道：服务器、游戏目录、游戏插件、静音语音、买卖时段统计、自动升级');
     if (!st) return h('div', { style: css.page }, err ? h('div', { style: css.err }, err) : h('div', { style: css.muted }, '读取中…'));
 
     const s = st.settings;
@@ -108,7 +108,7 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
           ['auto', 'Horde', 'Alliance'].map((f) => h('option', { key: f, value: f }, factionLabel[f])))),
       h('div', { style: css.muted }, cn
         ? '价格和商机：无限图鉴的拍卖行数据（游戏内采集，每天更新），按规则集和阵营选拍卖行。'
-        : '价格和商机：wowauctions.net（大约每小时扫描一次），按规则集和阵营选拍卖行。'),
+        : '价格和商机：wowauctions.net 和 Forever AH（都是大约每小时一份快照），按规则集和阵营选拍卖行。'),
       h('div', { style: css.muted }, '“按角色自动”用游戏里当前角色的阵营。'));
 
     // 1b. where the game conversations go in dsh web
@@ -165,6 +165,24 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
       h('div', { style: css.muted }, '游戏用一个音量为 0 的 Windows 语音把问题传给这台电脑。安装时用 Windows 自带的编译器编译，并弹一次“用户账户控制”（只写入语音名片）。'),
       output ? h('pre', { style: css.pre }, output) : null);
 
+    // 4b. the weekly buy/sell-hours statistics (a DSH scheduled task)
+    const mk = st.market || {};
+    const when = (iso) => { try { return iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : ''; } catch { return ''; } };
+    const market = h(Section, { title: '买卖时段统计（DSH 自动化任务）' },
+      !mk.available ? h('div', { style: css.warn }, '这个 DSH 没有自动化任务（Schedule）服务，用不了定时统计；游戏里问“什么时候买卖最划算”仍然可以。')
+      : !mk.supported ? h('div', { style: css.muted }, '只有欧服、美服有这项统计（数据来自 Forever AH）。')
+      : h(Line, null,
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          h('input', { type: 'checkbox', checked: !!mk.on, disabled: !!busy, onChange: (e) => { const on = e.target.checked; run('market', 'settings', { marketReport: on },
+            () => setNote(on ? '已打开：DSH 的“自动化任务”里多了一个“魔兽买卖时段统计”。' : '已关闭，定时任务已删除。')); } }),
+          `每周自动统计一次（周一 ${mk.time || '07:30'}，${mk.zone || '本机时间'}）`),
+        mk.on && mk.id ? h(Btn, { disabled: !!busy, onClick: () => run('market-run', 'market-run', {}, () => setNote('已开始运行：约两分钟后在 DSH 的对话列表里看新出现的那个对话。')) }, busy === 'market-run' ? '正在启动…' : '现在运行一次') : null),
+      mk.on && mk.id ? h('div', null, mk.status === 'paused' ? h('span', { style: css.warn }, '任务在 DSH 里被暂停了。') : `下次运行：${when(mk.next) || '—'}`, mk.last ? `；上次运行：${when(mk.last)}` : '；还没运行过') : null,
+      mk.on && mk.missing ? h('div', { style: css.warn }, '定时任务在 DSH 里找不到了：把开关关掉再打开。') : null,
+      mk.error ? h('div', { style: css.err }, mk.error) : null,
+      h('div', { style: css.muted }, '用的是 DSH 自带的自动化任务：统计一份大交易量常见物品清单近 30 天的逐小时价格，算出一天里什么时段最便宜、什么时段最贵，哪些物品的时段差最明显。到时间 DSH 会新开一个对话写出报告；dsh web 没开着就等下次启动时补跑。每次约两分钟，用一次 AI 回答的额度。'),
+      h('div', { style: css.muted }, '时间和频率可以在 DSH 的“自动化任务”页面里改，也可以在那里暂停；在那里删掉任务等于关掉这个开关。游戏里随时可以问“什么时候买卖最划算”，用的是同一份统计。'));
+
     // 5. updates
     const u = st.update || {};
     const restartNow = () => run('restart', 'restart', {}, () => setNote('dsh web 正在重启：几秒后刷新这一页。重启后它在后台运行（不在原来的终端窗口里）。'));
@@ -194,7 +212,7 @@ window.__ModuleLoader__.load({ id: '@local/dsh-wow-bridge', factory: (require) =
     return h('div', { style: css.page },
       err ? h('div', { style: { ...css.err, whiteSpace: 'pre-wrap' } }, err) : null,
       note ? h('div', { style: css.ok }, note) : null,
-      server, chats, folder, addon, voice, updates);
+      server, chats, folder, addon, voice, market, updates);
   }
 
   exports.inject = ['slots'];

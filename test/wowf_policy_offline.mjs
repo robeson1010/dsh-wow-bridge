@@ -14,7 +14,7 @@ import { prompt, factionOf, RULES_REMINDER } from '../dsh-web/lib/answer.mjs';
 // ---- allowlist ----
 assert.equal(ALLOW.size, MCP_TOOLS.length + OWN_TOOLS.length + CN_PRICE_TOOLS.length + 2);
 assert.equal(MCP_TOOLS.length, 15, 'trimmed wuxianwow allowlist (2026-11-21)');
-for (const n of ['web_search', 'wow_item_market', 'wow_craft_profit', 'mcp__wuxianwow__search', 'mcp__wuxianwow__quests', 'mcp__wuxianwow__npcs',
+for (const n of ['web_search', 'wow_item_market', 'wow_craft_profit', 'wow_flip_market', 'mcp__wuxianwow__search', 'mcp__wuxianwow__quests', 'mcp__wuxianwow__npcs',
   'mcp__wuxianwow__instances', 'mcp__wuxianwow__profession_guide', 'mcp__wuxianwow__gathering', 'mcp__wuxianwow__fetch']) {
   assert.equal(denial({ name: n, arguments: {} }), undefined, n);
 }
@@ -33,7 +33,8 @@ setServer('us-rp'); forgetConfigCache();
 assert.ok(denial({ name: 'mcp__wuxianwow__auction_house', arguments: {} }) && !denial({ name: 'wow_item_market', arguments: {} }), 'US: same as EU');
 setServer('cn-pvp'); forgetConfigCache();
 assert.equal(denial({ name: 'mcp__wuxianwow__auction_house', arguments: {} }), undefined, 'China: auction_house allowed');
-assert.ok(denial({ name: 'wow_item_market', arguments: {} }).includes('国服 PvP') && denial({ name: 'wow_craft_profit', arguments: {} }), 'China: wowauctions tools refused');
+assert.ok(denial({ name: 'wow_item_market', arguments: {} }).includes('国服 PvP') && denial({ name: 'wow_craft_profit', arguments: {} })
+  && denial({ name: 'wow_flip_market', arguments: {} }).includes('国服 PvP'), 'China: the EU / US price tools refused');
 assert.deepEqual([...offRegion()], OWN_TOOLS);
 const cnUsage = JSON.parse(slimResultText('item_usage', JSON.stringify({ item: { id: 2320 }, auction: { realms: ['PvP · 部落'] } }), { keepPrices: true }));
 assert.ok(cnUsage.auction, 'China: item_usage keeps its auction block');

@@ -1,0 +1,735 @@
+{
+ "note": "Trimmed answers of forever-ah.com/v1 for EU PvP Horde (house_key 21), 2026-11-28: /houses, /houses/21/market?ids= (14 of the watchlist items), /houses/21/items/4306/auctions (the 12 cheapest rows)",
+ "houses": [
+  {
+   "house_key": 33,
+   "region": "eu",
+   "ruleset_id": 2,
+   "house_id": 0,
+   "name": "All Auction Houses",
+   "last_snapshot": "2026-11-28T09:21:56Z",
+   "house_type": "unified"
+  },
+  {
+   "house_key": 18,
+   "region": "eu",
+   "ruleset_id": 2,
+   "house_id": 110,
+   "name": "Alliance Auction House",
+   "last_snapshot": "2026-11-28T09:21:55Z",
+   "house_type": "real"
+  },
+  {
+   "house_key": 21,
+   "region": "eu",
+   "ruleset_id": 2,
+   "house_id": 113,
+   "name": "Horde Auction House",
+   "last_snapshot": "2026-11-28T09:21:56Z",
+   "house_type": "real"
+  },
+  {
+   "house_key": 22,
+   "region": "eu",
+   "ruleset_id": 2,
+   "house_id": 114,
+   "name": "Horde Auction House",
+   "last_snapshot": "2026-11-28T09:21:55Z",
+   "house_type": "real"
+  },
+  {
+   "house_key": 23,
+   "region": "eu",
+   "ruleset_id": 2,
+   "house_id": 115,
+   "name": "Horde Auction House",
+   "last_snapshot": "2026-11-28T09:21:43Z",
+   "house_type": "real"
+  }
+ ],
+ "market": {
+  "house": {
+   "house_key": 21,
+   "region": "eu",
+   "ruleset_id": 2,
+   "house_id": 113,
+   "name": "Horde Auction House",
+   "last_snapshot": "2026-11-28T09:21:56Z",
+   "house_type": "real"
+  },
+  "as_of": "2026-11-28T09:21:56Z",
+  "change_window_hours": 24,
+  "total": 14,
+  "rows": [
+   {
+    "item": {
+     "item_id": 12360,
+     "name": "Arcanite Bar",
+     "quality": "UNCOMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Metal & Stone",
+     "item_level": 55,
+     "item_class_id": 7,
+     "item_subclass_id": 7,
+     "required_level": 0,
+     "sell_price": 5000,
+     "purchase_price": 20000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 371847,
+     "p10_unit": 372097,
+     "median_unit": 375496,
+     "mean_unit": 386201,
+     "quantity": 288,
+     "listings": 253
+    },
+    "prev_median_unit": 384800,
+    "prev_min_unit": 375599,
+    "median_change_pct": -2.417879417879418,
+    "min_change_pct": -0.998937696852228,
+    "stats": {
+     "market_value": 443355,
+     "historical_value": 478646,
+     "trend_pct": -17.115522526722355,
+     "days_seen": 14,
+     "sold_per_day": 610.8238312216147
+    }
+   },
+   {
+    "item": {
+     "item_id": 8836,
+     "name": "Arthas' Tears",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Herb",
+     "item_level": 44,
+     "item_class_id": 7,
+     "item_subclass_id": 9,
+     "required_level": 0,
+     "sell_price": 95,
+     "purchase_price": 380,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 1916,
+     "p10_unit": 1917,
+     "median_unit": 2039,
+     "mean_unit": 2133,
+     "quantity": 1305,
+     "listings": 197
+    },
+    "prev_median_unit": 2067,
+    "prev_min_unit": 1955,
+    "median_change_pct": -1.3546202225447508,
+    "min_change_pct": -1.9948849104859334,
+    "stats": {
+     "market_value": 2101,
+     "historical_value": 2140,
+     "trend_pct": 0.006751738572691677,
+     "days_seen": 14,
+     "sold_per_day": 4503.859261855578
+    }
+   },
+   {
+    "item": {
+     "item_id": 14048,
+     "name": "Bolt of Runecloth",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Cloth",
+     "item_level": 55,
+     "item_class_id": 7,
+     "item_subclass_id": 5,
+     "required_level": 0,
+     "sell_price": 2000,
+     "purchase_price": 8000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 2850,
+     "p10_unit": 2855,
+     "median_unit": 2895,
+     "mean_unit": 2990,
+     "quantity": 2871,
+     "listings": 83
+    },
+    "prev_median_unit": 2899,
+    "prev_min_unit": 2899,
+    "median_change_pct": -0.1379786133149362,
+    "min_change_pct": -1.6902380131079684,
+    "stats": {
+     "market_value": 3145,
+     "historical_value": 3272,
+     "trend_pct": -9.258090308462734,
+     "days_seen": 14,
+     "sold_per_day": 7204.563996629206
+    }
+   },
+   {
+    "item": {
+     "item_id": 7068,
+     "name": "Elemental Fire",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Elemental",
+     "item_level": 25,
+     "item_class_id": 7,
+     "item_subclass_id": 10,
+     "required_level": 0,
+     "sell_price": 400,
+     "purchase_price": 1600,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 7897,
+     "p10_unit": 7999,
+     "median_unit": 12386,
+     "mean_unit": 10647,
+     "quantity": 2615,
+     "listings": 67
+    },
+    "prev_median_unit": 10008,
+    "prev_min_unit": 8195,
+    "median_change_pct": 23.760991207034373,
+    "min_change_pct": -3.6363636363636362,
+    "stats": {
+     "market_value": 5595,
+     "historical_value": 5085,
+     "trend_pct": 25.9716263192509,
+     "days_seen": 14,
+     "sold_per_day": 3420.420156160276
+    }
+   },
+   {
+    "item": {
+     "item_id": 8845,
+     "name": "Ghost Mushroom",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Herb",
+     "item_level": 47,
+     "item_class_id": 7,
+     "item_subclass_id": 9,
+     "required_level": 0,
+     "sell_price": 375,
+     "purchase_price": 1500,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 6450,
+     "p10_unit": 6450,
+     "median_unit": 6454,
+     "mean_unit": 6545,
+     "quantity": 686,
+     "listings": 44
+    },
+    "prev_median_unit": 4759,
+    "prev_min_unit": 4758,
+    "median_change_pct": 35.61672620298382,
+    "min_change_pct": 35.56116015132409,
+    "stats": {
+     "market_value": 4899,
+     "historical_value": 4714,
+     "trend_pct": 8.761188463451031,
+     "days_seen": 14,
+     "sold_per_day": 3661.8824248842216
+    }
+   },
+   {
+    "item": {
+     "item_id": 8846,
+     "name": "Gromsblood",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Herb",
+     "item_level": 50,
+     "item_class_id": 7,
+     "item_subclass_id": 9,
+     "required_level": 0,
+     "sell_price": 250,
+     "purchase_price": 1000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 8999,
+     "p10_unit": 9999,
+     "median_unit": 11998,
+     "mean_unit": 11499,
+     "quantity": 230,
+     "listings": 41
+    },
+    "prev_median_unit": 3129,
+    "prev_min_unit": 3000,
+    "median_change_pct": 283.44519015659955,
+    "min_change_pct": 199.96666666666667,
+    "stats": {
+     "market_value": 3018,
+     "historical_value": 2891,
+     "trend_pct": 12.345293811752459,
+     "days_seen": 14,
+     "sold_per_day": 9291.545419969721
+    }
+   },
+   {
+    "item": {
+     "item_id": 248815,
+     "name": "Heavy Thorium Ore",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Metal & Stone",
+     "item_level": 60,
+     "item_class_id": 7,
+     "item_subclass_id": 7,
+     "required_level": 0,
+     "sell_price": 375,
+     "purchase_price": 1500,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 2000,
+     "p10_unit": 2000,
+     "median_unit": 2088,
+     "mean_unit": 2078,
+     "quantity": 209,
+     "listings": 35
+    },
+    "prev_median_unit": 1957,
+    "prev_min_unit": 1929,
+    "median_change_pct": 6.6939192641798675,
+    "min_change_pct": 3.68066355624676,
+    "stats": {
+     "market_value": 2225,
+     "historical_value": 2223,
+     "trend_pct": -0.025776517592467397,
+     "days_seen": 14,
+     "sold_per_day": 4101.636923627632
+    }
+   },
+   {
+    "item": {
+     "item_id": 16204,
+     "name": "Illusion Dust",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Enchanting",
+     "item_level": 55,
+     "item_class_id": 7,
+     "item_subclass_id": 12,
+     "required_level": 0,
+     "sell_price": 1,
+     "purchase_price": 1,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 1337,
+     "p10_unit": 1341,
+     "median_unit": 1700,
+     "mean_unit": 1874,
+     "quantity": 4726,
+     "listings": 124
+    },
+    "prev_median_unit": 1519,
+    "prev_min_unit": 1395,
+    "median_change_pct": 11.915734035549704,
+    "min_change_pct": -4.157706093189964,
+    "stats": {
+     "market_value": 1959,
+     "historical_value": 2822,
+     "trend_pct": -48.92284788510378,
+     "days_seen": 14,
+     "sold_per_day": 13921.048824323416
+    }
+   },
+   {
+    "item": {
+     "item_id": 14227,
+     "name": "Ironweb Spider Silk",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Cloth",
+     "item_level": 50,
+     "item_class_id": 7,
+     "item_subclass_id": 5,
+     "required_level": 0,
+     "sell_price": 2500,
+     "purchase_price": 10000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 9448,
+     "p10_unit": 9449,
+     "median_unit": 9666,
+     "mean_unit": 9923,
+     "quantity": 952,
+     "listings": 189
+    },
+    "prev_median_unit": 8400,
+    "prev_min_unit": 8200,
+    "median_change_pct": 15.071428571428571,
+    "min_change_pct": 15.21951219512195,
+    "stats": {
+     "market_value": 7399,
+     "historical_value": 6711,
+     "trend_pct": 29.68515026376723,
+     "days_seen": 14,
+     "sold_per_day": 3609.0474521414235
+    }
+   },
+   {
+    "item": {
+     "item_id": 12804,
+     "name": "Powerful Mojo",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Other",
+     "item_level": 55,
+     "item_class_id": 7,
+     "item_subclass_id": 11,
+     "required_level": 0,
+     "sell_price": 2000,
+     "purchase_price": 8000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 34647,
+     "p10_unit": 34649,
+     "median_unit": 38700,
+     "mean_unit": 43058,
+     "quantity": 205,
+     "listings": 120
+    },
+    "prev_median_unit": 19999,
+    "prev_min_unit": 17000,
+    "median_change_pct": 93.50967548377419,
+    "min_change_pct": 103.80588235294118,
+    "stats": {
+     "market_value": 17288,
+     "historical_value": 18004,
+     "trend_pct": -0.571419023909378,
+     "days_seen": 14,
+     "sold_per_day": 977.1248312738174
+    }
+   },
+   {
+    "item": {
+     "item_id": 8170,
+     "name": "Rugged Leather",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Leather",
+     "item_level": 50,
+     "item_class_id": 7,
+     "item_subclass_id": 6,
+     "required_level": 0,
+     "sell_price": 500,
+     "purchase_price": 2000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 1846,
+     "p10_unit": 1850,
+     "median_unit": 1897,
+     "mean_unit": 1933,
+     "quantity": 10670,
+     "listings": 339
+    },
+    "prev_median_unit": 2049,
+    "prev_min_unit": 1977,
+    "median_change_pct": -7.41825280624695,
+    "min_change_pct": -6.626201315123925,
+    "stats": {
+     "market_value": 1959,
+     "historical_value": 1955,
+     "trend_pct": -0.9613994506288854,
+     "days_seen": 14,
+     "sold_per_day": 29191.161358161873
+    }
+   },
+   {
+    "item": {
+     "item_id": 15846,
+     "name": "Salt Shaker",
+     "quality": "COMMON",
+     "item_class": "Consumable",
+     "item_subclass": "Device",
+     "item_level": 50,
+     "item_class_id": 0,
+     "item_subclass_id": 14,
+     "required_level": 0,
+     "sell_price": 7500,
+     "purchase_price": 30000,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 26758,
+     "p10_unit": 26966,
+     "median_unit": 27471,
+     "mean_unit": 30819,
+     "quantity": 223,
+     "listings": 223
+    },
+    "prev_median_unit": 28596,
+    "prev_min_unit": 28583,
+    "median_change_pct": -3.9341166596726813,
+    "min_change_pct": -6.384914109785537,
+    "stats": {
+     "market_value": 30869,
+     "historical_value": 31735,
+     "trend_pct": -7.909501397200394,
+     "days_seen": 14,
+     "sold_per_day": 288.98152774566904
+    }
+   },
+   {
+    "item": {
+     "item_id": 4306,
+     "name": "Silk Cloth",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Cloth",
+     "item_level": 30,
+     "item_class_id": 7,
+     "item_subclass_id": 5,
+     "required_level": 0,
+     "sell_price": 150,
+     "purchase_price": 600,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 190,
+     "p10_unit": 198,
+     "median_unit": 200,
+     "mean_unit": 767,
+     "quantity": 20800,
+     "listings": 662
+    },
+    "prev_median_unit": 201,
+    "prev_min_unit": 150,
+    "median_change_pct": -0.4975124378109453,
+    "min_change_pct": 26.666666666666668,
+    "stats": {
+     "market_value": 199,
+     "historical_value": 199,
+     "trend_pct": 0.5767844268204738,
+     "days_seen": 14,
+     "sold_per_day": 53642.155817231316
+    }
+   },
+   {
+    "item": {
+     "item_id": 4304,
+     "name": "Thick Leather",
+     "quality": "COMMON",
+     "item_class": "Trade Goods",
+     "item_subclass": "Leather",
+     "item_level": 40,
+     "item_class_id": 7,
+     "item_subclass_id": 6,
+     "required_level": 0,
+     "sell_price": 300,
+     "purchase_price": 1200,
+     "purchase_quantity": 1,
+     "has_icon": true
+    },
+    "current": {
+     "ts": "2026-11-28T09:21:56Z",
+     "min_unit": 599,
+     "p10_unit": 721,
+     "median_unit": 760,
+     "mean_unit": 893,
+     "quantity": 10809,
+     "listings": 304
+    },
+    "prev_median_unit": 829,
+    "prev_min_unit": 700,
+    "median_change_pct": -8.323281061519904,
+    "min_change_pct": -14.428571428571429,
+    "stats": {
+     "market_value": 733,
+     "historical_value": 704,
+     "trend_pct": 13.276231263383295,
+     "days_seen": 14,
+     "sold_per_day": 38422.46202262609
+    }
+   }
+  ]
+ },
+ "auctions": {
+  "as_of": "2026-11-28T09:21:56Z",
+  "total_auctions": 662,
+  "total_quantity": 20800,
+  "rows": [
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 37,
+    "bid": null,
+    "buyout": 7030,
+    "unit_bid": null,
+    "unit_buyout": 190,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 90,
+    "bid": null,
+    "buyout": 17550,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 62,
+    "bid": null,
+    "buyout": 12090,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 33,
+    "bid": null,
+    "buyout": 6435,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 27,
+    "bid": null,
+    "buyout": 5265,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 26,
+    "bid": null,
+    "buyout": 5070,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 2
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 20,
+    "bid": null,
+    "buyout": 3900,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "VERY_LONG",
+    "count": 4
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 20,
+    "bid": null,
+    "buyout": 3900,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 18,
+    "bid": null,
+    "buyout": 3510,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 16,
+    "bid": null,
+    "buyout": 3120,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "MEDIUM",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 14,
+    "bid": null,
+    "buyout": 2730,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "LONG",
+    "count": 1
+   },
+   {
+    "house_key": 21,
+    "house_id": 113,
+    "house_name": "Horde Auction House",
+    "quantity": 10,
+    "bid": null,
+    "buyout": 1950,
+    "unit_bid": null,
+    "unit_buyout": 195,
+    "time_left": "MEDIUM",
+    "count": 1
+   }
+  ]
+ }
+}

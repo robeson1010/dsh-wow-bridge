@@ -26,7 +26,7 @@ export const MCP_TOOLS = [
   'profession_guide', 'factions', 'achievements', 'insights', 'legacy_tree',
 ];
 // our own read-only market tools (./wowf-market-tools.js)
-export const OWN_TOOLS = ['wow_item_market', 'wow_craft_profit'];
+export const OWN_TOOLS = ['wow_item_market', 'wow_craft_profit', 'wow_flip_market'];
 // prices by the server on the settings page (lib/settings.mjs): China -> 无限图鉴's auction_house; EU / US -> our
 // wowauctions tools. The other side's price tools are hidden and refused, so the model cannot quote the wrong region.
 export const CN_PRICE_TOOLS = [`${MCP}auction_house`];

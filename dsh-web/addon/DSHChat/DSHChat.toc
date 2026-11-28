@@ -4,7 +4,7 @@
 ## Notes: A local-only [DSH] chat channel answered by your own DeepSeek Harness on this PC. Needs the DSH Bridge voice and bridge program.
 ## Notes-zhCN: 聊天框里的本地 [DSH] 频道，由你电脑上的 DeepSeek Harness 回答。需要 DSH Bridge 语音和桥接程序。
 ## Author: 加拿大雨姐
-## Version: 0.5.6
+## Version: 0.5.7
 ## SavedVariables: DSHChatDB
 
 Codec.lua
